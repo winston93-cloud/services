@@ -69,12 +69,12 @@ export default function LoginForm() {
       </div>
 
       {/* Main Content */}
-      <div className="relative z-10 min-h-screen flex items-center justify-center p-4">
-        <div className="w-full max-w-md">
+      <div className="relative z-10 min-h-screen flex items-center justify-center p-4 sm:p-6">
+        <div className="w-full max-w-md mx-auto">
           {/* Main Card */}
           <div className="bg-white/95 backdrop-blur-xl rounded-3xl shadow-2xl overflow-hidden border border-white/20 animate-fadeIn">
             {/* Header with animated elements */}
-            <div className="relative bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 px-8 py-8 text-center overflow-hidden">
+            <div className="relative bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 px-6 py-6 sm:px-8 sm:py-8 text-center overflow-hidden">
               {/* Animated background pattern */}
               <div className="absolute inset-0 opacity-20">
                 <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-r from-white/10 to-transparent animate-shimmer"></div>
@@ -92,7 +92,7 @@ export default function LoginForm() {
               </div>
               
               {/* Title with gradient text */}
-              <h1 className="text-3xl font-bold text-white mb-2 animate-slideDown delay-200">
+              <h1 className="text-2xl sm:text-3xl font-bold text-white mb-2 animate-slideDown delay-200">
                 <span className="bg-gradient-to-r from-white to-blue-100 bg-clip-text text-transparent">
                   Sistema Integral de Servicios
                 </span>
@@ -106,7 +106,7 @@ export default function LoginForm() {
             </div>
 
             {/* Form Section */}
-            <div className="px-8 py-8">
+            <div className="px-6 py-6 sm:px-8 sm:py-8">
               <form onSubmit={handleSubmit} className="space-y-6">
                 {/* Username Field */}
                 <div className="animate-slideUp delay-200">
@@ -193,7 +193,7 @@ export default function LoginForm() {
             </div>
 
             {/* Footer */}
-            <div className="bg-gradient-to-r from-gray-50 to-blue-50 px-8 py-6 text-center border-t border-gray-100">
+            <div className="bg-gradient-to-r from-gray-50 to-blue-50 px-6 py-4 sm:px-8 sm:py-6 text-center border-t border-gray-100">
               <p className="text-xs text-gray-600 font-medium animate-fadeIn delay-800">
                 © 2025 Sistema Integral de Servicios. 🚀 Innovación y tecnología.
               </p>

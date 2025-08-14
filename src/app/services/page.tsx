@@ -93,7 +93,7 @@ export default function ServicesPage() {
       {/* Header */}
       <header className="relative z-10 bg-white/10 backdrop-blur-xl border-b border-white/20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-20">
+          <div className="flex justify-between items-center h-16 sm:h-20">
             {/* Hamburger Menu Button */}
             <button
               onClick={toggleMenu}
@@ -118,20 +118,24 @@ export default function ServicesPage() {
                   />
                 </div>
                 <div>
-                  <h1 className="text-3xl font-bold text-white">Services</h1>
-                  <p className="text-blue-200 flex items-center gap-2">
+                  <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-white">Services</h1>
+                  <p className="text-blue-200 flex items-center gap-2 text-sm sm:text-base">
                     <FaStar className="text-yellow-400 animate-pulse" />
-                    Bienvenido, <span className="font-semibold">{user.usuario_nombre} {user.usuario_app} {user.usuario_apm}</span>
+                    <span className="hidden sm:inline">Bienvenido, </span>
+                    <span className="font-semibold truncate max-w-[150px] sm:max-w-none">
+                      {user.usuario_nombre} {user.usuario_app} {user.usuario_apm}
+                    </span>
                   </p>
                 </div>
               </div>
             </div>
             <button
               onClick={handleLogout}
-              className="group inline-flex items-center px-6 py-3 bg-gradient-to-r from-red-500 to-pink-500 text-white font-bold rounded-2xl shadow-lg hover:shadow-xl transform hover:scale-105 active:scale-95 transition-all duration-300 animate-slideIn delay-200"
+              className="group inline-flex items-center px-3 py-2 sm:px-6 sm:py-3 bg-gradient-to-r from-red-500 to-pink-500 text-white font-bold rounded-2xl shadow-lg hover:shadow-xl transform hover:scale-105 active:scale-95 transition-all duration-300 animate-slideIn delay-200 text-sm sm:text-base"
             >
-              <FaSignOutAlt className="mr-2 h-5 w-5 group-hover:animate-bounce" />
-              Cerrar Sesión
+              <FaSignOutAlt className="mr-1 sm:mr-2 h-4 w-4 sm:h-5 sm:w-5 group-hover:animate-bounce" />
+              <span className="hidden sm:inline">Cerrar Sesión</span>
+              <span className="sm:hidden">Salir</span>
             </button>
           </div>
         </div>
@@ -146,7 +150,7 @@ export default function ServicesPage() {
       )}
 
       {/* Hamburger Menu */}
-      <div className={`fixed top-0 left-0 h-full w-80 bg-gradient-to-b from-purple-900 via-blue-900 to-indigo-900 border-r border-white/20 backdrop-blur-xl z-40 transform transition-transform duration-300 ease-in-out ${
+      <div className={`fixed top-0 left-0 h-full w-80 sm:w-96 bg-gradient-to-b from-purple-900 via-blue-900 to-indigo-900 border-r border-white/20 backdrop-blur-xl z-40 transform transition-transform duration-300 ease-in-out ${
         isMenuOpen ? 'translate-x-0' : '-translate-x-full'
       }`}>
         <div className="flex flex-col h-full">
@@ -175,7 +179,7 @@ export default function ServicesPage() {
               {menuItems.map((item, index) => (
                 <button
                   key={index}
-                  className={`w-full flex items-center gap-4 p-4 bg-white/5 hover:bg-white/10 rounded-xl border border-white/10 hover:border-white/20 transition-all duration-300 transform hover:scale-105 hover:translate-x-2 animate-slideUp`}
+                  className={`w-full flex items-center gap-4 p-4 bg-white/5 hover:bg-white/10 active:bg-white/15 rounded-xl border border-white/10 hover:border-white/20 transition-all duration-300 transform hover:scale-105 active:scale-95 hover:translate-x-2 animate-slideUp touch-manipulation`}
                   style={{ animationDelay: `${index * 0.05}s` }}
                   onClick={() => {
                     // Aquí puedes agregar la navegación específica
@@ -213,9 +217,9 @@ export default function ServicesPage() {
       </div>
 
       {/* Main Content */}
-      <main className="relative z-10 max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
-        <div className="text-center mb-16 animate-fadeIn">
-          <h2 className="text-5xl font-bold text-white mb-6">
+      <main className="relative z-10 max-w-7xl mx-auto py-8 sm:py-12 px-4 sm:px-6 lg:px-8">
+        <div className="text-center mb-12 sm:mb-16 animate-fadeIn">
+          <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-white mb-4 sm:mb-6">
             <span className="bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
               Sistema Integral de Servicios
             </span>
@@ -228,13 +232,13 @@ export default function ServicesPage() {
         </div>
 
         {/* Services Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mb-16">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8 mb-12 sm:mb-16">
           {services.map((service, index) => {
             const Icon = service.icon
             return (
               <div
                 key={index}
-                className={`group bg-white/10 backdrop-blur-xl rounded-3xl p-8 border border-white/20 hover:border-white/40 transition-all duration-500 transform hover:scale-105 hover:-translate-y-2 cursor-pointer animate-slideUp`}
+                className={`group bg-white/10 backdrop-blur-xl rounded-3xl p-6 sm:p-8 border border-white/20 hover:border-white/40 transition-all duration-500 transform hover:scale-105 hover:-translate-y-2 cursor-pointer animate-slideUp touch-manipulation active:scale-95`}
                 style={{ animationDelay: `${index * 0.1}s` }}
               >
                 <div className={`w-16 h-16 bg-gradient-to-r ${service.color} rounded-2xl flex items-center justify-center mb-6 group-hover:animate-bounce transition-all duration-300 shadow-lg`}>
@@ -255,20 +259,20 @@ export default function ServicesPage() {
         </div>
 
         {/* Central Feature */}
-        <div className="bg-white/10 backdrop-blur-xl rounded-3xl p-12 border border-white/20 text-center animate-fadeIn delay-600">
+        <div className="bg-white/10 backdrop-blur-xl rounded-3xl p-8 sm:p-12 border border-white/20 text-center animate-fadeIn delay-600">
           <div className="w-24 h-24 bg-gradient-to-r from-purple-500 via-blue-500 to-cyan-500 rounded-3xl flex items-center justify-center mx-auto mb-8 animate-float shadow-2xl">
             <FaGem className="text-white text-3xl animate-pulse" />
           </div>
-          <h3 className="text-3xl font-bold text-white mb-4">
+          <h3 className="text-2xl sm:text-3xl font-bold text-white mb-4">
             <span className="bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
               Plataforma Premium
             </span>
           </h3>
-          <p className="text-blue-200 text-lg mb-8 max-w-2xl mx-auto">
+          <p className="text-blue-200 text-base sm:text-lg mb-6 sm:mb-8 max-w-2xl mx-auto px-4 sm:px-0">
             Experimenta la próxima generación de servicios digitales con tecnología de vanguardia, 
             inteligencia artificial y diseño futurista.
           </p>
-          <button className="bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 text-white px-8 py-4 rounded-2xl font-bold text-lg shadow-lg hover:shadow-xl transform hover:scale-105 active:scale-95 transition-all duration-300">
+          <button className="bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 text-white px-6 py-3 sm:px-8 sm:py-4 rounded-2xl font-bold text-base sm:text-lg shadow-lg hover:shadow-xl transform hover:scale-105 active:scale-95 transition-all duration-300 touch-manipulation">
             <div className="flex items-center gap-3">
               <span>Explorar Funciones</span>
               <FaLightbulb className="animate-pulse" />
