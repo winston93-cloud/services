@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Image from 'next/image'
 import { FaUser, FaLock, FaEye, FaEyeSlash, FaGraduationCap, FaStar, FaLightbulb } from 'react-icons/fa'
 import { loginUser } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
@@ -81,9 +82,11 @@ export default function LoginForm() {
               
               {/* Logo without rotation */}
               <div className="relative z-10 w-20 h-20 bg-white/95 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg animate-float overflow-hidden">
-                <img 
+                <Image 
                   src="/leon.jpg" 
                   alt="León Escolar" 
+                  width={64}
+                  height={64}
                   className="w-16 h-16 object-cover rounded-xl"
                 />
               </div>

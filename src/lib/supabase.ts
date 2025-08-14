@@ -10,6 +10,9 @@ export interface Usuario {
   id?: number
   usuario_username: string
   usuario_password: string
+  usuario_nombre?: string
+  usuario_app?: string
+  usuario_apm?: string
   created_at?: string
   updated_at?: string
 }

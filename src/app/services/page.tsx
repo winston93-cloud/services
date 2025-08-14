@@ -3,6 +3,7 @@
 import { useAuth } from '@/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
+import Image from 'next/image'
 import { FaSignOutAlt, FaUsers, FaCog, FaChartLine, FaLock, FaLightbulb, FaStar, FaGem, FaEnvelope, FaBan, FaFileInvoice, FaIdCard, FaBars, FaTimes } from 'react-icons/fa'
 
 export default function ServicesPage() {
@@ -108,9 +109,11 @@ export default function ServicesPage() {
             <div className="animate-slideIn flex items-center gap-4">
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 bg-white/95 rounded-xl flex items-center justify-center overflow-hidden">
-                  <img 
+                  <Image 
                     src="/leon.jpg" 
                     alt="León Winston" 
+                    width={40}
+                    height={40}
                     className="w-10 h-10 object-cover rounded-lg"
                   />
                 </div>
@@ -151,9 +154,11 @@ export default function ServicesPage() {
           <div className="p-6 border-b border-white/20">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 bg-white/95 rounded-lg flex items-center justify-center overflow-hidden">
-                <img 
+                <Image 
                   src="/leon.jpg" 
                   alt="León Winston" 
+                  width={32}
+                  height={32}
                   className="w-8 h-8 object-cover rounded-md"
                 />
               </div>
