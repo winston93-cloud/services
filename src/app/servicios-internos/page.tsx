@@ -262,31 +262,31 @@ export default function ServiciosInternosPage() {
       {/* Header */}
       <div className="relative z-10 bg-white shadow-lg border-b-4 border-blue-500">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center py-4 sm:py-0 sm:h-16 gap-4 sm:gap-0">
             <div className="flex items-center gap-4">
               <button
                 onClick={() => router.push('/services')}
-                className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors text-sm sm:text-base"
               >
                 <FaArrowLeft className="text-gray-600" />
                 <span className="text-gray-700 font-medium">Volver</span>
               </button>
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                <div className="w-8 h-8 sm:w-10 sm:h-10 bg-blue-100 rounded-lg flex items-center justify-center">
                   <Image
                     src="/leon.jpg"
                     alt="León Winston"
                     width={32}
                     height={32}
-                    className="w-8 h-8 object-cover rounded-md"
+                    className="w-6 h-6 sm:w-8 sm:h-8 object-cover rounded-md"
                   />
                 </div>
-                <h1 className="text-xl font-bold text-gray-800">Servicios Internos</h1>
+                <h1 className="text-lg sm:text-xl font-bold text-gray-800">Servicios Internos</h1>
               </div>
             </div>
             <div className="text-right">
-              <p className="text-sm text-gray-600">Alumno</p>
-              <p className="font-semibold text-gray-800">{user.alumno_nombre_completo}</p>
+              <p className="text-xs sm:text-sm text-gray-600">Alumno</p>
+              <p className="font-semibold text-gray-800 text-sm sm:text-base truncate max-w-[200px] sm:max-w-none">{user.alumno_nombre_completo}</p>
             </div>
           </div>
         </div>
