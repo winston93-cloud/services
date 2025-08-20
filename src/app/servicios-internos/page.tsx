@@ -284,8 +284,8 @@ export default function ServiciosInternosPage() {
                 <h1 className="text-lg sm:text-xl font-bold text-gray-800">Servicios Internos</h1>
               </div>
             </div>
-            <div className="text-right">
-              <p className="text-xs sm:text-sm text-gray-600">Alumno</p>
+            <div className="flex items-center gap-2 sm:justify-end">
+              <p className="text-xs sm:text-sm text-gray-600 font-bold">Alumno:</p>
               <p className="font-semibold text-gray-800 text-sm sm:text-base truncate max-w-[200px] sm:max-w-none">{user.alumno_nombre_completo}</p>
             </div>
           </div>
