@@ -3,14 +3,12 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
-import { FaUser, FaLock, FaEye, FaEyeSlash, FaGraduationCap, FaStar, FaLightbulb } from 'react-icons/fa'
-import { loginUser } from '@/lib/supabase'
+import { FaUser, FaGraduationCap, FaStar, FaLightbulb } from 'react-icons/fa'
+import { loginAlumno } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 
 export default function LoginForm() {
-  const [username, setUsername] = useState('')
-  const [password, setPassword] = useState('')
-  const [showPassword, setShowPassword] = useState(false)
+  const [numeroControl, setNumeroControl] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
   const { login } = useAuth()
@@ -21,20 +19,20 @@ export default function LoginForm() {
     setIsLoading(true)
     setError('')
 
-    if (!username.trim() || !password.trim()) {
-      setError('Por favor, complete todos los campos')
+    if (!numeroControl.trim()) {
+      setError('Por favor, ingrese su número de control')
       setIsLoading(false)
       return
     }
 
     try {
-      const result = await loginUser(username.trim(), password)
+      const result = await loginAlumno(numeroControl.trim())
       
       if (result.success && result.user) {
         login(result.user)
-        router.push('/services')
+        router.push('/dashboard')
       } else {
-        setError(result.error || 'Error de autenticación')
+        setError(result.error || 'Número de control no encontrado')
       }
     } catch (error) {
       console.error('Error en login:', error)
@@ -45,27 +43,15 @@ export default function LoginForm() {
   }
 
   return (
-    <div className="min-h-screen relative overflow-hidden bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900">
-      {/* Animated Background Elements */}
+    <div className="min-h-screen relative overflow-hidden">
+      {/* Diagonal Background Effect */}
       <div className="absolute inset-0">
-        {/* Floating geometric shapes */}
-        <div className="absolute top-20 left-10 w-20 h-20 bg-blue-400/20 rounded-full animate-bounce delay-300"></div>
-        <div className="absolute top-40 right-20 w-16 h-16 bg-purple-400/20 rounded-full animate-pulse delay-700"></div>
-        <div className="absolute bottom-32 left-20 w-12 h-12 bg-pink-400/20 rounded-full animate-bounce delay-1000"></div>
-        <div className="absolute bottom-20 right-32 w-24 h-24 bg-cyan-400/20 rounded-full animate-pulse delay-500"></div>
-        
-        {/* Animated grid */}
-        <div className="absolute inset-0 bg-gradient-to-r from-blue-500/5 to-purple-500/5">
-          <div className="absolute inset-0" style={{
-            backgroundImage: `radial-gradient(circle at 25% 25%, rgba(120, 119, 198, 0.3) 0%, transparent 50%), 
-                              radial-gradient(circle at 75% 75%, rgba(236, 72, 153, 0.3) 0%, transparent 50%)`
-          }}></div>
-        </div>
-        
-        {/* Moving particles */}
-        <div className="absolute top-1/4 left-1/4 w-2 h-2 bg-white/40 rounded-full animate-ping delay-200"></div>
-        <div className="absolute top-3/4 right-1/4 w-2 h-2 bg-white/40 rounded-full animate-ping delay-800"></div>
-        <div className="absolute top-1/2 left-3/4 w-2 h-2 bg-white/40 rounded-full animate-ping delay-1200"></div>
+        {/* Base blanca */}
+        <div className="absolute inset-0 bg-white"></div>
+        {/* Diagonal 1: Blanco a Azul Marino (top-left to bottom-right) */}
+        <div className="absolute inset-0 bg-gradient-to-br from-white via-blue-200 via-blue-600 to-blue-900 opacity-90"></div>
+        {/* Diagonal 2: Azul Marino a Blanco (bottom-left to top-right) */}
+        <div className="absolute inset-0 bg-gradient-to-tr from-blue-900 via-blue-600 via-blue-200 to-white opacity-70 mix-blend-multiply"></div>
       </div>
 
       {/* Main Content */}
@@ -108,55 +94,23 @@ export default function LoginForm() {
             {/* Form Section */}
             <div className="px-6 py-6 sm:px-8 sm:py-8">
               <form onSubmit={handleSubmit} className="space-y-6">
-                {/* Username Field */}
+                {/* Número de Control Field */}
                 <div className="animate-slideUp delay-200">
-                  <label htmlFor="username" className="block text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                  <label htmlFor="numeroControl" className="block text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
                     <FaUser className="text-blue-500" />
-                    Usuario
+                    Num. de Control
                   </label>
                   <div className="relative group">
                     <input
-                      id="username"
+                      id="numeroControl"
                       type="text"
-                      value={username}
-                      onChange={(e) => setUsername(e.target.value)}
+                      value={numeroControl}
+                      onChange={(e) => setNumeroControl(e.target.value)}
                       className="block w-full px-4 py-4 bg-gray-50 border-2 border-gray-200 rounded-2xl focus:outline-none focus:border-blue-500 focus:bg-white transition-all duration-300 placeholder-gray-400 hover:border-blue-300 transform focus:scale-105 text-gray-900 font-medium text-base"
-                      placeholder="Ingrese su usuario"
+                      placeholder="Ingrese su número de control"
                       disabled={isLoading}
                     />
                     <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-blue-500/10 to-purple-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
-                  </div>
-                </div>
-
-                {/* Password Field */}
-                <div className="animate-slideUp delay-400">
-                  <label htmlFor="password" className="block text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                    <FaLock className="text-purple-500" />
-                    Contraseña
-                  </label>
-                  <div className="relative group">
-                    <input
-                      id="password"
-                      type={showPassword ? 'text' : 'password'}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="block w-full px-4 py-4 pr-12 bg-gray-50 border-2 border-gray-200 rounded-2xl focus:outline-none focus:border-purple-500 focus:bg-white transition-all duration-300 placeholder-gray-400 hover:border-purple-300 transform focus:scale-105 text-gray-900 font-medium"
-                      placeholder="Ingrese su contraseña"
-                      disabled={isLoading}
-                      style={{ 
-                        letterSpacing: showPassword ? 'normal' : '0.1em',
-                        fontSize: showPassword ? '16px' : '18px'
-                      }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-purple-600 transition-all duration-200 hover:scale-110"
-                      disabled={isLoading}
-                    >
-                      {showPassword ? <FaEyeSlash className="h-5 w-5" /> : <FaEye className="h-5 w-5" />}
-                    </button>
-                    <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-purple-500/10 to-pink-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
                   </div>
                 </div>
 

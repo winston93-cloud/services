@@ -1,11 +1,11 @@
 'use client'
 
 import React, { createContext, useContext, useState, useEffect } from 'react'
-import { Usuario } from '@/lib/supabase'
+import { Alumno } from '@/lib/supabase'
 
 interface AuthContextType {
-  user: Usuario | null
-  login: (user: Usuario) => void
+  user: Alumno | null
+  login: (user: Alumno) => void
   logout: () => void
   isLoading: boolean
 }
@@ -13,7 +13,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<Usuario | null>(null)
+  const [user, setUser] = useState<Alumno | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
@@ -30,7 +30,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(false)
   }, [])
 
-  const login = (userData: Usuario) => {
+  const login = (userData: Alumno) => {
     setUser(userData)
     localStorage.setItem('user', JSON.stringify(userData))
   }
