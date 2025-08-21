@@ -36,8 +36,9 @@ export default function ServiciosInternosPage() {
     date: string
   } | null>(null)
   const [isProcessingOrder, setIsProcessingOrder] = useState(false)
-  const [showDateModal, setShowDateModal] = useState(false)
-  const [selectedItemForDate, setSelectedItemForDate] = useState<CartItem | null>(null)
+  const [showCalendar, setShowCalendar] = useState(false)
+  const [calendarItem, setCalendarItem] = useState<CartItem | null>(null)
+  const [currentMonth, setCurrentMonth] = useState(new Date())
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -92,23 +93,89 @@ export default function ServiciosInternosPage() {
     setFilteredProductos([])
   }
 
-  const openDateModal = (item: CartItem) => {
-    setSelectedItemForDate(item)
-    setShowDateModal(true)
+  const openCalendar = (item: CartItem) => {
+    setCalendarItem(item)
+    setCurrentMonth(new Date(item.fecha_pedido || new Date().toISOString().split('T')[0]))
+    setShowCalendar(true)
   }
 
-  const updateItemDate = (newDate: string) => {
-    if (selectedItemForDate) {
+  // Función para validar si una fecha es fin de semana
+  const isWeekend = (date: Date) => {
+    const dayOfWeek = date.getDay()
+    return dayOfWeek === 0 || dayOfWeek === 6 // Domingo o Sábado
+  }
+
+  // Función para verificar si una fecha es anterior a hoy
+  const isPastDate = (date: Date) => {
+    const today = new Date()
+    const dateToCheck = new Date(date)
+    
+    // Normalizar fechas para comparar solo año, mes y día
+    today.setHours(0, 0, 0, 0)
+    dateToCheck.setHours(0, 0, 0, 0)
+    
+    return dateToCheck < today
+  }
+
+  // Generar días del calendario
+  const generateCalendarDays = () => {
+    const year = currentMonth.getFullYear()
+    const month = currentMonth.getMonth()
+    
+    const firstDayOfMonth = new Date(year, month, 1)
+    const lastDayOfMonth = new Date(year, month + 1, 0)
+    const startDate = new Date(firstDayOfMonth)
+    
+    // Ir al lunes anterior
+    const dayOfWeek = firstDayOfMonth.getDay()
+    const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1
+    startDate.setDate(firstDayOfMonth.getDate() - daysToSubtract)
+    
+    const days = []
+    const currentDate = new Date(startDate)
+    
+    // Generar 42 días (6 semanas)
+    for (let i = 0; i < 42; i++) {
+      days.push(new Date(currentDate))
+      currentDate.setDate(currentDate.getDate() + 1)
+    }
+    
+    return days
+  }
+
+  // Manejar selección de día en el calendario
+  const handleDayClick = (date: Date) => {
+    if (isWeekend(date) || isPastDate(date)) return
+    
+    const dateString = date.toISOString().split('T')[0]
+    
+    if (calendarItem) {
       setCart(prevCart =>
         prevCart.map(item =>
-          item.id === selectedItemForDate.id
-            ? { ...item, fecha_pedido: newDate }
+          item.id === calendarItem.id
+            ? { ...item, fecha_pedido: dateString }
             : item
         )
       )
-      setShowDateModal(false)
-      setSelectedItemForDate(null)
+      
+      console.log('🔄 Fecha actualizada en calendario:', {
+        itemId: calendarItem.id,
+        itemName: calendarItem.desayuno_nombre,
+        fechaNueva: dateString
+      })
+      
+      setShowCalendar(false)
+      setCalendarItem(null)
     }
+  }
+
+  // Navegar meses
+  const navigateMonth = (direction: number) => {
+    setCurrentMonth(prev => {
+      const newMonth = new Date(prev)
+      newMonth.setMonth(newMonth.getMonth() + direction)
+      return newMonth
+    })
   }
 
   const updateQuantity = (id: number, newQuantity: number) => {
@@ -150,11 +217,37 @@ export default function ServiciosInternosPage() {
         pago_ref: user.alumno_ref, // Número de control del alumno
         pago_descripcion: item.desayuno_nombre,
         pago_costo: item.costo,
-        pago_fecha: new Date().toISOString().split('T')[0], // Solo la fecha
+        pago_fecha: item.fecha_pedido || new Date().toISOString().split('T')[0], // Usar fecha personalizada o fecha actual como fallback
         pago_cantidad: item.quantity,
         pago_orden: '', // Se asignará en la función savePagoDesayunos
         pago_estatus: 2 // 2 = en proceso
       }))
+
+      console.log('📦 Datos que se van a guardar en la BD:', itemsToSave.map(item => ({
+        descripcion: item.pago_descripcion,
+        fecha: item.pago_fecha,
+        cantidad: item.pago_cantidad
+      })))
+      
+      // Log detallado de cada item
+      console.log('🔍 LOG DETALLADO - Items del carrito antes de guardar:')
+      cart.forEach((item, index) => {
+        console.log(`Item ${index + 1}:`, {
+          id: item.id,
+          nombre: item.desayuno_nombre,
+          fecha_pedido: item.fecha_pedido,
+          cantidad: item.quantity
+        })
+      })
+      
+      console.log('🔍 LOG DETALLADO - Items que se van a guardar:')
+      itemsToSave.forEach((item, index) => {
+        console.log(`Item ${index + 1} a guardar:`, {
+          descripcion: item.pago_descripcion,
+          fecha: item.pago_fecha,
+          cantidad: item.pago_cantidad
+        })
+      })
 
       // Guardar en la base de datos
       const result = await savePagoDesayunos(itemsToSave, user.alumno_ref)
@@ -545,7 +638,7 @@ export default function ServiciosInternosPage() {
                             <FaPlus className="text-xs" />
                           </button>
                           <button
-                            onClick={() => openDateModal(item)}
+                            onClick={() => openCalendar(item)}
                             className="w-6 h-6 bg-purple-500 text-white rounded-full flex items-center justify-center hover:bg-purple-600 ml-2"
                           >
                             <FaCalendarAlt className="text-xs" />
@@ -689,57 +782,112 @@ export default function ServiciosInternosPage() {
         </div>
       )}
 
-      {/* Modal de Calendario */}
-      {showDateModal && selectedItemForDate && (
+      {/* Calendario Inline */}
+      {showCalendar && calendarItem && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full">
-            {/* Header del Modal */}
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full">
+            {/* Header del Calendario */}
             <div className="flex items-center justify-between p-6 border-b border-gray-200">
-              <h2 className="text-xl font-bold text-gray-800">Seleccionar Fecha</h2>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
+                  <FaCalendarAlt className="text-purple-600 text-lg" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-gray-800">Seleccionar Fecha</h2>
+                  <p className="text-sm text-gray-600">{calendarItem.desayuno_nombre}</p>
+                </div>
+              </div>
               <button
-                onClick={() => setShowDateModal(false)}
+                onClick={() => {
+                  setShowCalendar(false)
+                  setCalendarItem(null)
+                }}
                 className="w-8 h-8 bg-gray-100 hover:bg-gray-200 rounded-full flex items-center justify-center transition-colors"
               >
                 <FaTimes className="text-gray-600" />
               </button>
             </div>
 
-            {/* Contenido del Modal */}
+            {/* Calendario */}
             <div className="p-6">
-              <div className="mb-4">
-                <h3 className="font-semibold text-gray-800 mb-2">{selectedItemForDate.desayuno_nombre}</h3>
-                <p className="text-gray-600 text-sm">Selecciona la fecha para este servicio:</p>
-              </div>
-              
-              <div className="mb-6">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Fecha de servicio:
-                </label>
-                <input
-                  type="date"
-                  value={selectedItemForDate.fecha_pedido || new Date().toISOString().split('T')[0]}
-                  onChange={(e) => updateItemDate(e.target.value)}
-                  min={new Date().toISOString().split('T')[0]}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                />
+              {/* Navegación de meses */}
+              <div className="flex items-center justify-between mb-6">
+                <button
+                  onClick={() => navigateMonth(-1)}
+                  className="w-10 h-10 bg-gray-100 hover:bg-gray-200 rounded-lg flex items-center justify-center transition-colors"
+                >
+                  <span className="text-lg text-gray-600">‹</span>
+                </button>
+                <h3 className="text-xl font-bold text-gray-800 capitalize">
+                  {currentMonth.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}
+                </h3>
+                <button
+                  onClick={() => navigateMonth(1)}
+                  className="w-10 h-10 bg-gray-100 hover:bg-gray-200 rounded-lg flex items-center justify-center transition-colors"
+                >
+                  <span className="text-lg text-gray-600">›</span>
+                </button>
               </div>
 
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setShowDateModal(false)}
-                  className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={() => {
-                    setShowDateModal(false)
-                    setSelectedItemForDate(null)
-                  }}
-                  className="flex-1 px-4 py-3 bg-purple-500 text-white rounded-lg font-medium hover:bg-purple-600 transition-colors"
-                >
-                  Confirmar
-                </button>
+              {/* Días de la semana */}
+              <div className="grid grid-cols-7 gap-1 mb-3">
+                {['L', 'M', 'M', 'J', 'V', 'S', 'D'].map((day, index) => (
+                  <div key={index} className="text-center py-2 text-sm font-medium text-gray-600">
+                    {day}
+                  </div>
+                ))}
+              </div>
+
+              {/* Días del calendario */}
+              <div className="grid grid-cols-7 gap-1">
+                {generateCalendarDays().map((date, index) => {
+                  const isCurrentMonth = date.getMonth() === currentMonth.getMonth()
+                  const isToday = date.toDateString() === new Date().toDateString()
+                  const dateString = date.toISOString().split('T')[0]
+                  const isSelected = calendarItem.fecha_pedido === dateString
+                  const isPast = isPastDate(date)
+                  const isWeekendDay = isWeekend(date)
+                  const isDisabled = isPast || isWeekendDay
+
+                  return (
+                    <button
+                      key={index}
+                      onClick={() => handleDayClick(date)}
+                      disabled={isDisabled}
+                      className={`
+                        h-10 w-full text-sm font-medium rounded-lg transition-all duration-200
+                        ${!isCurrentMonth 
+                          ? 'text-gray-300 cursor-not-allowed' 
+                          : isDisabled
+                            ? 'text-gray-400 bg-gray-100 cursor-not-allowed opacity-50'
+                            : isSelected
+                              ? 'bg-purple-500 text-white shadow-md'
+                              : isToday
+                                ? 'bg-blue-100 text-blue-600 font-bold'
+                                : 'text-gray-700 hover:bg-purple-100 hover:text-purple-600'
+                        }
+                      `}
+                    >
+                      {date.getDate()}
+                    </button>
+                  )
+                })}
+              </div>
+
+              {/* Información adicional */}
+              <div className="mt-6 pt-4 border-t border-gray-200">
+                <div className="flex items-center gap-2 text-sm text-gray-600 mb-2">
+                  <div className="w-3 h-3 bg-purple-500 rounded-full"></div>
+                  <span>Fecha seleccionada</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm text-gray-600 mb-2">
+                  <div className="w-3 h-3 bg-blue-100 rounded-full"></div>
+                  <span>Hoy</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm text-gray-600">
+                  <div className="w-3 h-3 bg-gray-100 rounded-full"></div>
+                  <span>Días no disponibles (pasados, fines de semana)</span>
+                </div>
               </div>
             </div>
           </div>

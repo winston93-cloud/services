@@ -138,7 +138,7 @@ export async function savePagoDesayunos(items: PagoDesayuno[], alumnoRef: string
       ...item,
       pago_ref: alumnoRef, // Número de control del alumno
       pago_orden: orderNumber, // Número de orden único globalmente
-      pago_fecha: new Date().toISOString().split('T')[0], // Solo la fecha
+      pago_fecha: item.pago_fecha, // Usar la fecha personalizada del carrito
       pago_estatus: 2 // 2 = en proceso
     }))
 
@@ -177,6 +177,32 @@ export async function getConceptosPagados(alumnoRef: string): Promise<{ success:
     return { success: true, data: data || [] }
   } catch (error) {
     console.error('Error en getConceptosPagados:', error)
+    return { success: false, error: 'Error de conexión. Intente nuevamente.' }
+  }
+}
+
+// Función para obtener todos los pagos (reservados y pagados) que no han pasado de fecha
+export async function getAllPagosVigentes(alumnoRef: string): Promise<{ success: boolean; error?: string; data?: PagoDesayuno[] }> {
+  try {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0) // Normalizar a inicio del día
+    
+    const { data, error } = await supabase
+      .from('pago_desayunos')
+      .select('*')
+      .eq('pago_ref', alumnoRef)
+      .in('pago_estatus', [1, 2]) // Estatus 1 (pagado) y 2 (reservado)
+      .gte('pago_fecha', today.toISOString().split('T')[0]) // Solo fechas de hoy en adelante
+      .order('pago_fecha', { ascending: true })
+
+    if (error) {
+      console.error('Error en Supabase:', error)
+      return { success: false, error: 'Error al cargar pagos' }
+    }
+
+    return { success: true, data: data || [] }
+  } catch (error) {
+    console.error('Error en getAllPagosVigentes:', error)
     return { success: false, error: 'Error de conexión. Intente nuevamente.' }
   }
 }

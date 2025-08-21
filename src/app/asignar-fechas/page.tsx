@@ -3,9 +3,9 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
-import { FaArrowLeft, FaCalendarAlt, FaTimes, FaCheckCircle, FaExclamationTriangle, FaTrash } from 'react-icons/fa'
+import { FaArrowLeft, FaCalendarAlt, FaTimes, FaCheckCircle, FaExclamationTriangle, FaTrash, FaClock, FaCreditCard } from 'react-icons/fa'
 import { useAuth } from '@/contexts/AuthContext'
-import { getConceptosPagados, updateConceptoFecha, deleteConceptoPagado, PagoDesayuno } from '@/lib/supabase'
+import { getConceptosPagados, updateConceptoFecha, deleteConceptoPagado, getAllPagosVigentes, PagoDesayuno } from '@/lib/supabase'
 
 export default function AsignarFechasPage() {
   const { user, isLoading } = useAuth()
@@ -36,18 +36,24 @@ export default function AsignarFechasPage() {
 
     try {
       setIsLoadingConceptos(true)
-      const result = await getConceptosPagados(user.alumno_ref)
+      const result = await getAllPagosVigentes(user.alumno_ref)
       if (result.success && result.data) {
         setConceptosPagados(result.data)
       }
     } catch (error) {
-      console.error('Error cargando conceptos pagados:', error)
+      console.error('Error cargando pagos:', error)
     } finally {
       setIsLoadingConceptos(false)
     }
   }
 
   const openDateModal = (concepto: PagoDesayuno) => {
+    // Validar si se puede modificar
+    if (!canModifyTodayService(concepto.pago_fecha)) {
+      alert(getTimeErrorMessage())
+      return
+    }
+
     setSelectedConcepto(concepto)
     setSelectedDate(concepto.pago_fecha)
     setCurrentMonth(new Date(concepto.pago_fecha))
@@ -55,6 +61,12 @@ export default function AsignarFechasPage() {
   }
 
   const openCancelModal = (concepto: PagoDesayuno) => {
+    // Validar si se puede cancelar
+    if (!canModifyTodayService(concepto.pago_fecha)) {
+      alert(getTimeErrorMessage())
+      return
+    }
+
     setSelectedConcepto(concepto)
     setShowCancelModal(true)
   }
@@ -130,6 +142,65 @@ export default function AsignarFechasPage() {
     dateToCheck.setHours(0, 0, 0, 0)
     
     return dateToCheck < today
+  }
+
+  // Función para validar si se puede modificar un servicio del día actual
+  const canModifyTodayService = (fecha: string) => {
+    // Validar que la fecha sea válida
+    if (!fecha || fecha === '') {
+      return false
+    }
+
+    // Crear fechas en zona horaria local para evitar problemas de UTC
+    const today = new Date()
+    const [year, month, day] = fecha.split('-').map(Number)
+    const serviceDate = new Date(year, month - 1, day) // month - 1 porque los meses van de 0-11
+    
+    // Validar que la fecha se haya parseado correctamente
+    if (isNaN(serviceDate.getTime())) {
+      return false
+    }
+    
+    // Normalizar fechas para comparar solo año, mes y día
+    today.setHours(0, 0, 0, 0)
+    serviceDate.setHours(0, 0, 0, 0)
+    
+    // Log temporal para debug del servicio de mañana
+    if (fecha === '2025-08-22') {
+      console.log('🔍 DEBUG MAÑANA - FECHA:', fecha)
+      console.log('🔍 DEBUG MAÑANA - TODAY:', today.toISOString())
+      console.log('🔍 DEBUG MAÑANA - SERVICE DATE:', serviceDate.toISOString())
+      console.log('🔍 DEBUG MAÑANA - TODAY TIME:', today.getTime())
+      console.log('🔍 DEBUG MAÑANA - SERVICE TIME:', serviceDate.getTime())
+      console.log('🔍 DEBUG MAÑANA - ES HOY:', today.getTime() === serviceDate.getTime())
+      console.log('🔍 DEBUG MAÑANA - ES FUTURO:', serviceDate.getTime() > today.getTime())
+      console.log('🔍 DEBUG MAÑANA - ES PASADO:', serviceDate.getTime() < today.getTime())
+      console.log('🔍 DEBUG MAÑANA - DIFERENCIA:', serviceDate.getTime() - today.getTime())
+      console.log('🔍 DEBUG MAÑANA - DIFERENCIA DÍAS:', (serviceDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+    }
+    
+    // Si es el día de hoy, verificar la hora
+    if (today.getTime() === serviceDate.getTime()) {
+      const currentHour = new Date().getHours()
+      const currentMinutes = new Date().getMinutes()
+      const currentTimeInMinutes = currentHour * 60 + currentMinutes
+      const cutoffTimeInMinutes = 9 * 60 // 9:00 AM en minutos
+      
+      return currentTimeInMinutes < cutoffTimeInMinutes
+    }
+    
+    // Si es un día futuro, siempre se puede modificar
+    if (serviceDate.getTime() > today.getTime()) {
+      return true
+    }
+    
+    // Si es un día pasado, no se puede modificar
+    return false
+  }
+
+  // Función para obtener mensaje de error de hora
+  const getTimeErrorMessage = () => {
+    return "No se pueden realizar cambios o cancelaciones después de las 9:00 AM para servicios del día actual."
   }
 
   // Generar días del calendario
@@ -261,7 +332,7 @@ export default function AsignarFechasPage() {
                 <FaCalendarAlt className="text-purple-600 text-xl" />
               </div>
               <div>
-                <h2 className="text-xl font-bold text-gray-800">Conceptos ya Pagados</h2>
+                <h2 className="text-xl font-bold text-gray-800">Pagos y Reservas</h2>
                 <p className="text-gray-600 text-sm">Haz clic en el calendario para cambiar fechas o cancelar servicios</p>
               </div>
             </div>
@@ -279,15 +350,15 @@ export default function AsignarFechasPage() {
           {isLoadingConceptos ? (
             <div className="text-center py-8">
               <div className="w-12 h-12 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin mx-auto mb-4"></div>
-              <p className="text-gray-600">Cargando conceptos pagados...</p>
+              <p className="text-gray-600">Cargando pagos...</p>
             </div>
           ) : conceptosPagados.length === 0 ? (
             <div className="text-center py-12">
               <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <FaCheckCircle className="text-gray-400 text-2xl" />
               </div>
-              <h3 className="text-lg font-semibold text-gray-800 mb-2">No hay conceptos pagados</h3>
-              <p className="text-gray-600">Aún no tienes servicios pagados para asignar fechas.</p>
+              <h3 className="text-lg font-semibold text-gray-800 mb-2">No hay pagos vigentes</h3>
+              <p className="text-gray-600">Aún no tienes servicios pagados o reservados para asignar fechas.</p>
               <button
                 onClick={() => router.push('/servicios-internos')}
                 className="mt-4 px-6 py-3 bg-purple-500 text-white rounded-lg font-medium hover:bg-purple-600 transition-colors"
@@ -300,28 +371,76 @@ export default function AsignarFechasPage() {
               {conceptosPagados.map((concepto, index) => (
                 <div
                   key={concepto.id}
-                  className="flex items-center justify-between bg-gradient-to-r from-purple-50 to-blue-50 rounded-lg p-4 border border-purple-200 hover:shadow-md transition-all duration-200"
+                  className={`flex items-center justify-between rounded-lg p-4 border transition-all duration-200 ${
+                    concepto.pago_estatus === 1 
+                      ? 'bg-gradient-to-r from-green-50 to-blue-50 border-green-200 hover:shadow-md' 
+                      : 'bg-gradient-to-r from-yellow-50 to-orange-50 border-yellow-200 hover:shadow-md'
+                  }`}
                 >
                   <div className="flex items-center gap-4">
                     <div className="w-12 h-12 bg-white rounded-lg flex items-center justify-center shadow-sm">
                       <span className="text-2xl">{getProductEmoji(concepto.pago_descripcion)}</span>
                     </div>
                     <div className="flex-1">
-                      <h3 className="font-semibold text-gray-800">{concepto.pago_descripcion}</h3>
+                      <div className="flex items-center gap-2 mb-1">
+                        <h3 className="font-semibold text-gray-800">{concepto.pago_descripcion}</h3>
+                        {/* Indicador de estatus */}
+                        <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
+                          concepto.pago_estatus === 1
+                            ? 'bg-green-100 text-green-700'
+                            : 'bg-yellow-100 text-yellow-700'
+                        }`}>
+                          {concepto.pago_estatus === 1 ? (
+                            <>
+                              <FaCreditCard className="text-xs" />
+                              <span>Pagado</span>
+                            </>
+                          ) : (
+                            <>
+                              <FaClock className="text-xs" />
+                              <span>Reservado</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
                       <div className="flex gap-4 text-sm text-gray-600">
                         <span>Cantidad: {concepto.pago_cantidad}</span>
                         <span>Precio: ${concepto.pago_costo.toFixed(2)}</span>
                         <span>Total: ${(concepto.pago_costo * concepto.pago_cantidad).toFixed(2)}</span>
                       </div>
-                      <p className="text-purple-600 font-medium text-sm">
+                      <p className={`font-medium text-sm ${
+                        concepto.pago_estatus === 1 ? 'text-green-600' : 'text-yellow-600'
+                      }`}>
                         Fecha programada: {concepto.pago_fecha}
                       </p>
+                      
+                      {/* Indicador de restricción de hora para servicios del día actual */}
+                      {!canModifyTodayService(concepto.pago_fecha) && (
+                        <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded-lg">
+                          <div className="flex items-center gap-2 text-red-700 text-xs">
+                            <FaExclamationTriangle className="text-red-500" />
+                            <span className="font-medium">
+                              No se puede modificar después de las 9:00 AM
+                            </span>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className="flex gap-2">
                     <button
                       onClick={() => openDateModal(concepto)}
-                      className="flex items-center gap-2 px-3 py-2 bg-purple-500 text-white rounded-lg font-medium hover:bg-purple-600 transition-colors text-sm"
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg font-medium text-sm transition-colors ${
+                        canModifyTodayService(concepto.pago_fecha)
+                          ? 'bg-purple-500 text-white hover:bg-purple-600'
+                          : 'bg-gray-400 text-gray-200 cursor-not-allowed'
+                      }`}
+                      disabled={!canModifyTodayService(concepto.pago_fecha)}
+                      title={
+                        !canModifyTodayService(concepto.pago_fecha)
+                          ? getTimeErrorMessage()
+                          : 'Cambiar fecha del servicio'
+                      }
                     >
                       <FaCalendarAlt className="text-sm" />
                       <span className="hidden sm:inline">Cambiar Fecha</span>
@@ -329,7 +448,17 @@ export default function AsignarFechasPage() {
                     </button>
                     <button
                       onClick={() => openCancelModal(concepto)}
-                      className="flex items-center gap-2 px-3 py-2 bg-red-500 text-white rounded-lg font-medium hover:bg-red-600 transition-colors text-sm"
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg font-medium text-sm transition-colors ${
+                        canModifyTodayService(concepto.pago_fecha)
+                          ? 'bg-red-500 text-white hover:bg-red-600'
+                          : 'bg-gray-400 text-gray-200 cursor-not-allowed'
+                      }`}
+                      disabled={!canModifyTodayService(concepto.pago_fecha)}
+                      title={
+                        !canModifyTodayService(concepto.pago_fecha)
+                          ? getTimeErrorMessage()
+                          : 'Cancelar servicio'
+                      }
                     >
                       <FaTrash className="text-sm" />
                       <span className="hidden sm:inline">Cancelar</span>
