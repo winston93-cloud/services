@@ -200,3 +200,23 @@ export async function updateConceptoFecha(id: number, nuevaFecha: string): Promi
     return { success: false, error: 'Error de conexión. Intente nuevamente.' }
   }
 }
+
+// Función para eliminar un concepto pagado (cancelar servicio)
+export async function deleteConceptoPagado(id: number): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { error } = await supabase
+      .from('pago_desayunos')
+      .delete()
+      .eq('id', id)
+
+    if (error) {
+      console.error('Error en Supabase:', error)
+      return { success: false, error: 'Error al eliminar el servicio' }
+    }
+
+    return { success: true }
+  } catch (error) {
+    console.error('Error en deleteConceptoPagado:', error)
+    return { success: false, error: 'Error de conexión. Intente nuevamente.' }
+  }
+}

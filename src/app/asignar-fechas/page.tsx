@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { FaArrowLeft, FaCalendarAlt, FaTimes, FaCheckCircle, FaExclamationTriangle, FaTrash } from 'react-icons/fa'
 import { useAuth } from '@/contexts/AuthContext'
-import { getConceptosPagados, updateConceptoFecha, PagoDesayuno } from '@/lib/supabase'
+import { getConceptosPagados, updateConceptoFecha, deleteConceptoPagado, PagoDesayuno } from '@/lib/supabase'
 
 export default function AsignarFechasPage() {
   const { user, isLoading } = useAuth()
@@ -60,22 +60,29 @@ export default function AsignarFechasPage() {
   }
 
   const handleCancelacion = async () => {
-    if (!selectedConcepto) return
+    if (!selectedConcepto || !selectedConcepto.id) return
 
     try {
-      // TODO: Implementar lógica de cancelación en backend
-      // Por ahora simulamos la cancelación removiendo el elemento de la lista
-      setConceptosPagados(prev => prev.filter(item => item.id !== selectedConcepto.id))
+      // Eliminar el registro de la base de datos
+      const result = await deleteConceptoPagado(selectedConcepto.id)
       
-      // Cerrar modal
-      setShowCancelModal(false)
-      setSelectedConcepto(null)
-      
-      // Mostrar mensaje de confirmación
-      // Aquí podrías usar un toast o notificación más elegante
-      console.log('Concepto cancelado:', selectedConcepto)
+      if (result.success) {
+        // Actualizar el estado local removiendo el elemento
+        setConceptosPagados(prev => prev.filter(item => item.id !== selectedConcepto.id))
+        
+        // Cerrar modal
+        setShowCancelModal(false)
+        setSelectedConcepto(null)
+        
+        console.log('Servicio cancelado exitosamente:', selectedConcepto.pago_descripcion)
+      } else {
+        // Mostrar error si falla la eliminación
+        console.error('Error al cancelar servicio:', result.error)
+        alert(`Error al cancelar el servicio: ${result.error}`)
+      }
     } catch (error) {
       console.error('Error cancelando concepto:', error)
+      alert('Error inesperado al cancelar el servicio')
     }
   }
 
