@@ -28,8 +28,7 @@ export default function ServicesPage() {
 
   const menuItems = [
     { emoji: "🍽️", title: "Elegir Servicios", desc: "Reserva de Comida, Desayuno y Estancia" },
-    { emoji: "📅", title: "Asignar Fechas", desc: "Reservar días de servicios" },
-    { emoji: "❌", title: "Cancelar Servicios", desc: "Cancelar reservaciones" },
+    { emoji: "📅", title: "Asignar Fechas y Cancelaciones", desc: "Reservar días de servicios y cancelar" },
     { emoji: "💰", title: "Saldo a Favor", desc: "Ver montos disponibles" },
     { emoji: "📊", title: "Pagos Mensuales", desc: "Contratar servicios mensuales" },
     { emoji: "⚠️", title: "Adeudos Pendientes", desc: "Ver adeudos por tardanza" },
@@ -63,8 +62,7 @@ export default function ServicesPage() {
 
   const services = [
     { icon: FaUsers, title: "Elegir Servicios", desc: "Reserva de Comida, Desayuno y Estancia", color: "from-blue-500 to-cyan-500" },
-    { icon: FaChartLine, title: "Asignar Fechas", desc: "Calendario para reservar días contratados", color: "from-purple-500 to-pink-500" },
-    { icon: FaBan, title: "Cancelar Servicios", desc: "Cancelar reservaciones con límites de tiempo", color: "from-red-500 to-orange-500" },
+    { icon: FaChartLine, title: "Asignar Fechas y Cancelaciones", desc: "Calendario para reservar días y cancelar", color: "from-purple-500 to-pink-500" },
     { icon: FaGem, title: "Saldo a Favor", desc: "Consultar montos por devoluciones", color: "from-green-500 to-teal-500" },
     { icon: FaFileInvoice, title: "Pagos Mensuales", desc: "Contratar servicios por mes completo", color: "from-indigo-500 to-purple-500" },
     { icon: FaLock, title: "Adeudos Pendientes", desc: "Ver tardanzas y montos adeudados", color: "from-yellow-500 to-orange-500" },
@@ -184,6 +182,8 @@ export default function ServicesPage() {
                     // Navegación específica para cada opción
                     if (item.title === "Elegir Servicios") {
                       router.push('/servicios-internos')
+                    } else if (item.title === "Asignar Fechas y Cancelaciones") {
+                      router.push('/asignar-fechas')
                     } else {
                       console.log(`Navegando a: ${item.title}`)
                     }
@@ -249,6 +249,8 @@ export default function ServicesPage() {
                 onClick={() => {
                   if (service.title === "Elegir Servicios") {
                     router.push('/servicios-internos')
+                  } else if (service.title === "Asignar Fechas y Cancelaciones") {
+                    router.push('/asignar-fechas')
                   } else {
                     console.log(`Navegando a: ${service.title}`)
                   }

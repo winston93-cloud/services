@@ -158,3 +158,45 @@ export async function savePagoDesayunos(items: PagoDesayuno[], alumnoRef: string
     return { success: false, error: 'Error de conexión. Intente nuevamente.' }
   }
 }
+
+// Función para obtener conceptos ya pagados por alumno
+export async function getConceptosPagados(alumnoRef: string): Promise<{ success: boolean; error?: string; data?: PagoDesayuno[] }> {
+  try {
+    const { data, error } = await supabase
+      .from('pago_desayunos')
+      .select('*')
+      .eq('pago_ref', alumnoRef)
+      .eq('pago_estatus', 1) // Solo conceptos pagados
+      .order('pago_fecha', { ascending: true })
+
+    if (error) {
+      console.error('Error en Supabase:', error)
+      return { success: false, error: 'Error al cargar conceptos pagados' }
+    }
+
+    return { success: true, data: data || [] }
+  } catch (error) {
+    console.error('Error en getConceptosPagados:', error)
+    return { success: false, error: 'Error de conexión. Intente nuevamente.' }
+  }
+}
+
+// Función para actualizar fecha de un concepto pagado
+export async function updateConceptoFecha(id: number, nuevaFecha: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { error } = await supabase
+      .from('pago_desayunos')
+      .update({ pago_fecha: nuevaFecha })
+      .eq('id', id)
+
+    if (error) {
+      console.error('Error en Supabase:', error)
+      return { success: false, error: 'Error al actualizar fecha' }
+    }
+
+    return { success: true }
+  } catch (error) {
+    console.error('Error en updateConceptoFecha:', error)
+    return { success: false, error: 'Error de conexión. Intente nuevamente.' }
+  }
+}

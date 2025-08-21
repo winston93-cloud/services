@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
-import { FaSearch, FaShoppingCart, FaArrowLeft, FaPlus, FaMinus, FaTrash, FaTimes, FaDownload, FaPrint } from 'react-icons/fa'
+import { FaSearch, FaShoppingCart, FaArrowLeft, FaPlus, FaMinus, FaTrash, FaTimes, FaDownload, FaPrint, FaCalendarAlt } from 'react-icons/fa'
 import { useAuth } from '@/contexts/AuthContext'
 import { getConceptosDesayunos, savePagoDesayunos, PagoDesayuno } from '@/lib/supabase'
 import jsPDF from 'jspdf'
@@ -17,6 +17,7 @@ interface ConceptoDesayuno {
 
 interface CartItem extends ConceptoDesayuno {
   quantity: number
+  fecha_pedido?: string // Fecha específica para este item
 }
 
 export default function ServiciosInternosPage() {
@@ -35,6 +36,8 @@ export default function ServiciosInternosPage() {
     date: string
   } | null>(null)
   const [isProcessingOrder, setIsProcessingOrder] = useState(false)
+  const [showDateModal, setShowDateModal] = useState(false)
+  const [selectedItemForDate, setSelectedItemForDate] = useState<CartItem | null>(null)
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -82,11 +85,30 @@ export default function ServiciosInternosPage() {
             : item
         )
       } else {
-        return [...prevCart, { ...producto, quantity: 1 }]
+        return [...prevCart, { ...producto, quantity: 1, fecha_pedido: new Date().toISOString().split('T')[0] }]
       }
     })
     setSearchTerm('')
     setFilteredProductos([])
+  }
+
+  const openDateModal = (item: CartItem) => {
+    setSelectedItemForDate(item)
+    setShowDateModal(true)
+  }
+
+  const updateItemDate = (newDate: string) => {
+    if (selectedItemForDate) {
+      setCart(prevCart =>
+        prevCart.map(item =>
+          item.id === selectedItemForDate.id
+            ? { ...item, fecha_pedido: newDate }
+            : item
+        )
+      )
+      setShowDateModal(false)
+      setSelectedItemForDate(null)
+    }
   }
 
   const updateQuantity = (id: number, newQuantity: number) => {
@@ -506,6 +528,7 @@ export default function ServiciosInternosPage() {
                           <h4 className="font-medium text-gray-800 text-sm">{item.desayuno_nombre}</h4>
                           <p className="text-green-600 font-bold">${item.costo.toFixed(2)} c/u</p>
                           <p className="text-blue-600 font-semibold text-xs">Total: ${(item.costo * item.quantity).toFixed(2)}</p>
+                          <p className="text-purple-600 font-medium text-xs">Fecha: {item.fecha_pedido || new Date().toISOString().split('T')[0]}</p>
                         </div>
                         <div className="flex items-center gap-2 bg-white rounded-lg p-2 border border-gray-300">
                           <button
@@ -522,8 +545,14 @@ export default function ServiciosInternosPage() {
                             <FaPlus className="text-xs" />
                           </button>
                           <button
+                            onClick={() => openDateModal(item)}
+                            className="w-6 h-6 bg-purple-500 text-white rounded-full flex items-center justify-center hover:bg-purple-600 ml-2"
+                          >
+                            <FaCalendarAlt className="text-xs" />
+                          </button>
+                          <button
                             onClick={() => removeFromCart(item.id)}
-                            className="w-6 h-6 bg-gray-500 text-white rounded-full flex items-center justify-center hover:bg-gray-600 ml-2"
+                            className="w-6 h-6 bg-gray-500 text-white rounded-full flex items-center justify-center hover:bg-gray-600"
                           >
                             <FaTrash className="text-xs" />
                           </button>
@@ -654,6 +683,63 @@ export default function ServiciosInternosPage() {
               <div className="text-center mt-4">
                 <p className="text-red-600 font-semibold text-sm">Favor de pagar en caja en las Instalaciones del Colegio</p>
                 <p className="text-gray-500 text-xs">Conserve este ticket como comprobante</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Calendario */}
+      {showDateModal && selectedItemForDate && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full">
+            {/* Header del Modal */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <h2 className="text-xl font-bold text-gray-800">Seleccionar Fecha</h2>
+              <button
+                onClick={() => setShowDateModal(false)}
+                className="w-8 h-8 bg-gray-100 hover:bg-gray-200 rounded-full flex items-center justify-center transition-colors"
+              >
+                <FaTimes className="text-gray-600" />
+              </button>
+            </div>
+
+            {/* Contenido del Modal */}
+            <div className="p-6">
+              <div className="mb-4">
+                <h3 className="font-semibold text-gray-800 mb-2">{selectedItemForDate.desayuno_nombre}</h3>
+                <p className="text-gray-600 text-sm">Selecciona la fecha para este servicio:</p>
+              </div>
+              
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Fecha de servicio:
+                </label>
+                <input
+                  type="date"
+                  value={selectedItemForDate.fecha_pedido || new Date().toISOString().split('T')[0]}
+                  onChange={(e) => updateItemDate(e.target.value)}
+                  min={new Date().toISOString().split('T')[0]}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                />
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowDateModal(false)}
+                  className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={() => {
+                    setShowDateModal(false)
+                    setSelectedItemForDate(null)
+                  }}
+                  className="flex-1 px-4 py-3 bg-purple-500 text-white rounded-lg font-medium hover:bg-purple-600 transition-colors"
+                >
+                  Confirmar
+                </button>
               </div>
             </div>
           </div>
