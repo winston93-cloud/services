@@ -28,7 +28,7 @@ export interface PagoDesayuno {
   pago_ref: string // alumno_ref
   pago_descripcion: string
   pago_costo: number
-  pago_fecha: string
+  pago_fecha: string | null // Permitir NULL para items sin fecha
   pago_cantidad: number
   pago_orden: string // número de orden generado
   pago_estatus: number // 0 inicial, 2 en proceso
@@ -192,8 +192,8 @@ export async function getAllPagosVigentes(alumnoRef: string): Promise<{ success:
       .select('*')
       .eq('pago_ref', alumnoRef)
       .in('pago_estatus', [1, 2]) // Estatus 1 (pagado) y 2 (reservado)
-      .gte('pago_fecha', today.toISOString().split('T')[0]) // Solo fechas de hoy en adelante
-      .order('pago_fecha', { ascending: true })
+      .or(`pago_fecha.gte.${today.toISOString().split('T')[0]},pago_fecha.is.null`) // Fechas de hoy en adelante O fechas NULL
+      .order('pago_fecha', { ascending: true, nullsFirst: true }) // NULL primero, luego por fecha
 
     if (error) {
       console.error('Error en Supabase:', error)
@@ -207,9 +207,55 @@ export async function getAllPagosVigentes(alumnoRef: string): Promise<{ success:
   }
 }
 
+// Función para obtener historial completo de órdenes pagadas
+export async function getHistorialCompleto(alumnoRef: string): Promise<{ success: boolean; error?: string; data?: PagoDesayuno[] }> {
+  try {
+    // Consulta más específica para asegurar que obtenga los datos
+    const { data, error } = await supabase
+      .from('pago_desayunos')
+      .select('*')
+      .eq('pago_ref', alumnoRef)
+      .eq('pago_estatus', 1) // Solo órdenes pagadas (estatus 1)
+      .not('pago_orden', 'is', null) // Asegurar que tenga número de orden
+      .order('pago_fecha', { ascending: false }) // Más recientes primero
+
+    if (error) {
+      console.error('Error en Supabase:', error)
+      return { success: false, error: 'Error al cargar historial' }
+    }
+
+    // Filtrar solo los que tienen número de orden válido
+    const validData = (data || []).filter(item => item.pago_orden && item.pago_orden.trim() !== '')
+    
+    return { success: true, data: validData }
+  } catch (error) {
+    console.error('Error en getHistorialCompleto:', error)
+    return { success: false, error: 'Error de conexión. Intente nuevamente.' }
+  }
+}
+
 // Función para actualizar fecha de un concepto pagado
 export async function updateConceptoFecha(id: number, nuevaFecha: string): Promise<{ success: boolean; error?: string }> {
   try {
+    // Verificar si la fecha es para hoy y ya pasó de las 9:00 AM
+    const today = new Date()
+    
+    // Comparar por cadenas YYYY-MM-DD en zona horaria local para evitar problemas de zona horaria
+    const todayString = today.toISOString().split('T')[0] // Formato YYYY-MM-DD
+    const isTodayLocal = nuevaFecha === todayString
+    
+    if (isTodayLocal) {
+      const currentHour = today.getHours()
+      const currentMinute = today.getMinutes()
+      
+      if (currentHour > 9 || (currentHour === 9 && currentMinute > 0)) {
+        return { 
+          success: false, 
+          error: 'No se puede asignar la fecha de hoy después de las 9:00 AM' 
+        }
+      }
+    }
+
     const { error } = await supabase
       .from('pago_desayunos')
       .update({ pago_fecha: nuevaFecha })
@@ -243,6 +289,90 @@ export async function deleteConceptoPagado(id: number): Promise<{ success: boole
     return { success: true }
   } catch (error) {
     console.error('Error en deleteConceptoPagado:', error)
+    return { success: false, error: 'Error de conexión. Intente nuevamente.' }
+  }
+}
+
+// Función para obtener el total de órdenes pagadas del usuario
+export async function getTotalOrdenesPagadas(alumnoRef: string): Promise<{ success: boolean; error?: string; total?: number }> {
+  try {
+    // Obtener todas las órdenes pagadas del usuario
+    const { data, error } = await supabase
+      .from('pago_desayunos')
+      .select('pago_costo, pago_cantidad, pago_estatus, pago_orden')
+      .eq('pago_ref', alumnoRef)
+      .eq('pago_estatus', 1) // Solo órdenes pagadas (estatus 1)
+
+    if (error) {
+      console.error('Error en Supabase:', error)
+      return { success: false, error: 'Error al cargar datos financieros' }
+    }
+
+    if (!data || data.length === 0) {
+      return { success: true, total: 0 }
+    }
+
+    // Agrupar por número de orden y calcular el total de cada orden pagada
+    const ordenesPagadas: { [key: string]: number } = {}
+    
+    data.forEach(item => {
+      if (item.pago_orden) {
+        if (!ordenesPagadas[item.pago_orden]) {
+          ordenesPagadas[item.pago_orden] = 0
+        }
+        ordenesPagadas[item.pago_orden] += item.pago_costo * item.pago_cantidad
+      }
+    })
+    
+    // Sumar el total de todas las órdenes pagadas
+    const total = Object.values(ordenesPagadas).reduce((sum, totalOrden) => sum + totalOrden, 0)
+    
+    return { success: true, total: Math.round(total * 100) / 100 }
+  } catch (error) {
+    console.error('Error en getTotalOrdenesPagadas:', error)
+    return { success: false, error: 'Error de conexión. Intente nuevamente.' }
+  }
+}
+
+// Función para obtener los adeudos de la orden actual del usuario
+export async function getAdeudosOrdenActual(alumnoRef: string): Promise<{ success: boolean; error?: string; adeudos?: number }> {
+  try {
+    // Obtener la orden actual (con estatus 2 - reservada pero no pagada)
+    const { data, error } = await supabase
+      .from('pago_desayunos')
+      .select('pago_costo, pago_cantidad, pago_estatus, pago_orden, pago_fecha')
+      .eq('pago_ref', alumnoRef)
+      .eq('pago_estatus', 2) // Solo servicios reservados pero no pagados
+      .not('pago_orden', 'is', null) // Asegurar que tenga número de orden
+
+    if (error) {
+      console.error('Error en Supabase:', error)
+      return { success: false, error: 'Error al cargar datos financieros' }
+    }
+
+    if (!data || data.length === 0) {
+      return { success: true, adeudos: 0 }
+    }
+
+    // Agrupar por número de orden (debería ser solo una orden)
+    const ordenes: { [key: string]: number } = {}
+    
+    data.forEach(item => {
+      if (item.pago_orden) {
+        if (!ordenes[item.pago_orden]) {
+          ordenes[item.pago_orden] = 0
+        }
+        ordenes[item.pago_orden] += item.pago_costo * item.pago_cantidad
+      }
+    })
+    
+    // Tomar la primera orden (debería ser solo una)
+    const numeroOrden = Object.keys(ordenes)[0]
+    const adeudos = ordenes[numeroOrden] || 0
+    
+    return { success: true, adeudos: Math.round(adeudos * 100) / 100 }
+  } catch (error) {
+    console.error('Error en getAdeudosOrdenActual:', error)
     return { success: false, error: 'Error de conexión. Intente nuevamente.' }
   }
 }

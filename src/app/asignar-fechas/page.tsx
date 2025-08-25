@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { FaArrowLeft, FaCalendarAlt, FaTimes, FaCheckCircle, FaExclamationTriangle, FaTrash, FaClock, FaCreditCard } from 'react-icons/fa'
 import { useAuth } from '@/contexts/AuthContext'
-import { getConceptosPagados, updateConceptoFecha, deleteConceptoPagado, getAllPagosVigentes, PagoDesayuno } from '@/lib/supabase'
+import { updateConceptoFecha, deleteConceptoPagado, getAllPagosVigentes, getHistorialCompleto, PagoDesayuno } from '@/lib/supabase'
 
 export default function AsignarFechasPage() {
   const { user, isLoading } = useAuth()
@@ -15,9 +15,18 @@ export default function AsignarFechasPage() {
   const [showDateModal, setShowDateModal] = useState(false)
   const [showCancelModal, setShowCancelModal] = useState(false)
   const [selectedConcepto, setSelectedConcepto] = useState<PagoDesayuno | null>(null)
+  const [showRestrictionModal, setShowRestrictionModal] = useState(false)
+  const [restrictionMessage, setRestrictionMessage] = useState('')
+  const [showSuccessModal, setShowSuccessModal] = useState(false)
+  const [successMessage, setSuccessMessage] = useState('')
+  const [showCancelOrderModal, setShowCancelOrderModal] = useState(false)
   const [isUpdating, setIsUpdating] = useState(false)
   const [selectedDate, setSelectedDate] = useState<string>('')
   const [currentMonth, setCurrentMonth] = useState(new Date())
+  const [showHistorialModal, setShowHistorialModal] = useState(false)
+  const [historialData, setHistorialData] = useState<{[key: string]: PagoDesayuno[]}>({})
+  const [selectedOrderForDetail, setSelectedOrderForDetail] = useState<string>('')
+  const [showOrderDetailModal, setShowOrderDetailModal] = useState(false)
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -48,31 +57,66 @@ export default function AsignarFechasPage() {
   }
 
   const openDateModal = (concepto: PagoDesayuno) => {
-    // Validar si se puede modificar
-    if (!canModifyTodayService(concepto.pago_fecha)) {
-      alert(getTimeErrorMessage())
-      return
-    }
-
     setSelectedConcepto(concepto)
-    setSelectedDate(concepto.pago_fecha)
-    setCurrentMonth(new Date(concepto.pago_fecha))
+    setSelectedDate(concepto.pago_fecha || '')
+    if (concepto.pago_fecha) {
+      setCurrentMonth(new Date(concepto.pago_fecha))
+    } else {
+      setCurrentMonth(new Date()) // Si no hay fecha, usar mes actual
+    }
     setShowDateModal(true)
   }
 
   const openCancelModal = (concepto: PagoDesayuno) => {
-    // Validar si se puede cancelar
-    if (!canModifyTodayService(concepto.pago_fecha)) {
-      alert(getTimeErrorMessage())
-      return
-    }
-
     setSelectedConcepto(concepto)
     setShowCancelModal(true)
   }
 
+  const openHistorialModal = async () => {
+    if (!user) return
+    
+    try {
+      // Obtener TODAS las órdenes pagadas (estatus 1) del usuario usando la función específica
+      const result = await getHistorialCompleto(user.alumno_ref)
+      if (result.success && result.data) {
+        // Agrupar por número de orden
+        const groupedOrders: {[key: string]: PagoDesayuno[]} = {}
+        result.data.forEach(item => {
+          if (item.pago_orden) {
+            if (!groupedOrders[item.pago_orden]) {
+              groupedOrders[item.pago_orden] = []
+            }
+            groupedOrders[item.pago_orden].push(item)
+          }
+        })
+        
+        setHistorialData(groupedOrders)
+        setShowHistorialModal(true)
+      }
+    } catch (error) {
+      console.error('Error cargando historial:', error)
+      alert('Error al cargar el historial')
+    }
+  }
+
+  const openOrderDetailModal = (orderNumber: string) => {
+    setSelectedOrderForDetail(orderNumber)
+    setShowOrderDetailModal(true)
+  }
+
   const handleCancelacion = async () => {
     if (!selectedConcepto || !selectedConcepto.id) return
+
+    // Validar si se puede cancelar antes de proceder
+    if (!canModifyTodayService(selectedConcepto.pago_fecha, selectedConcepto.pago_estatus)) {
+      const message = selectedConcepto.pago_estatus === 1 
+        ? "No se pueden realizar cambios o cancelaciones para servicios pagados del día actual después de las 9:00 AM, ya que el pedido pasó a entrega."
+        : "No se pueden realizar cambios o cancelaciones después de las 9:00 AM para servicios del día actual."
+      setRestrictionMessage(message)
+      setShowRestrictionModal(true)
+      setShowCancelModal(false)
+      return
+    }
 
     try {
       // Eliminar el registro de la base de datos
@@ -98,8 +142,78 @@ export default function AsignarFechasPage() {
     }
   }
 
+  // Función para cancelar toda la orden
+  const handleCancelarOrden = async () => {
+    if (conceptosPagados.length === 0) return
+
+    // Verificar si se puede cancelar la orden completa
+    // Solo se bloquea si TODOS los servicios están pagados (estatus 1) del día actual después de las 9 AM
+    const canCancelOrder = conceptosPagados.some(concepto => 
+      concepto.pago_estatus === 2 || // Si hay algún servicio no pagado, se puede cancelar
+      !isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus) // O si no está bloqueado por horario
+    )
+
+    if (!canCancelOrder) {
+      setRestrictionMessage("No se puede cancelar la orden completa: todos los servicios están pagados del día actual después de las 9:00 AM.")
+      setShowRestrictionModal(true)
+      return
+    }
+
+    // Mostrar modal de confirmación
+    setShowCancelOrderModal(true)
+  }
+
+  // Función para ejecutar la cancelación de la orden
+  const executeCancelOrder = async () => {
+    try {
+      // Cancelar todos los servicios de la orden
+      const cancelPromises = conceptosPagados.map(concepto => 
+        deleteConceptoPagado(concepto.id!)
+      )
+      
+      const results = await Promise.all(cancelPromises)
+      const allSuccessful = results.every(result => result.success)
+      
+      if (allSuccessful) {
+        // Limpiar toda la lista
+        setConceptosPagados([])
+        setShowCancelOrderModal(false)
+        // Mostrar mensaje de éxito
+        setSuccessMessage('Orden cancelada exitosamente')
+        setShowSuccessModal(true)
+      } else {
+        setRestrictionMessage('Error al cancelar algunos servicios. Intente nuevamente.')
+        setShowRestrictionModal(true)
+      }
+    } catch (error) {
+      console.error('Error cancelando orden:', error)
+      setRestrictionMessage('Error inesperado al cancelar la orden')
+      setShowRestrictionModal(true)
+    }
+  }
+
   const updateFecha = async (nuevaFecha: string) => {
     if (!selectedConcepto) return
+
+    console.log('🔍 DEBUG updateFecha:')
+    console.log('  - nuevaFecha:', nuevaFecha)
+    console.log('  - selectedConcepto.pago_estatus:', selectedConcepto.pago_estatus)
+
+    // Validar si se puede modificar antes de proceder
+    const canModify = canModifyTodayService(nuevaFecha, selectedConcepto.pago_estatus)
+    console.log('  - canModifyTodayService resultado:', canModify)
+    
+    if (!canModify) {
+      const message = selectedConcepto.pago_estatus === 1 
+        ? "No se puede cambiar la fecha de servicios pagados del día actual después de las 9:00 AM, ya que el pedido pasó a entrega."
+        : "No se pueden realizar cambios después de las 9:00 AM para servicios del día actual."
+      console.log('  - ❌ Bloqueado, mostrando modal con mensaje:', message)
+      setRestrictionMessage(message)
+      setShowRestrictionModal(true)
+      return
+    }
+
+    console.log('  - ✅ Validación pasada, procediendo con actualización...')
 
     setIsUpdating(true)
     try {
@@ -116,7 +230,9 @@ export default function AsignarFechasPage() {
         setShowDateModal(false)
         setSelectedConcepto(null)
       } else {
-        alert(`Error: ${result.error}`)
+        // Mostrar el error de restricción de horario en un modal personalizado
+        setRestrictionMessage(result.error || 'Error al actualizar la fecha')
+        setShowRestrictionModal(true)
       }
     } catch (error) {
       console.error('Error actualizando fecha:', error)
@@ -132,6 +248,14 @@ export default function AsignarFechasPage() {
     return dayOfWeek === 0 || dayOfWeek === 6 // Domingo o Sábado
   }
 
+  // Helper: formatear fecha local YYYY-MM-DD sin offset de zona horaria
+  const formatLocalDate = (date: Date): string => {
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
+
   // Función para verificar si una fecha es anterior a hoy
   const isPastDate = (date: Date) => {
     const today = new Date()
@@ -141,61 +265,83 @@ export default function AsignarFechasPage() {
     today.setHours(0, 0, 0, 0)
     dateToCheck.setHours(0, 0, 0, 0)
     
+    // Solo bloquear días estrictamente anteriores a hoy (no incluir hoy)
     return dateToCheck < today
   }
 
   // Función para validar si se puede modificar un servicio del día actual
-  const canModifyTodayService = (fecha: string) => {
-    // Validar que la fecha sea válida
-    if (!fecha || fecha === '') {
-      return false
-    }
-
+  const canModifyTodayService = (fecha: string | null, estatus?: number) => {
     // Crear fechas en zona horaria local para evitar problemas de UTC
     const today = new Date()
-    const [year, month, day] = fecha.split('-').map(Number)
-    const serviceDate = new Date(year, month - 1, day) // month - 1 porque los meses van de 0-11
     
-    // Validar que la fecha se haya parseado correctamente
-    if (isNaN(serviceDate.getTime())) {
-      return false
+    console.log('🔍 DEBUG canModifyTodayService:')
+    console.log('  - fecha recibida:', fecha)
+    console.log('  - estatus:', estatus)
+    
+    // Si no hay fecha asignada, no se aplica la restricción de hora para cancelación.
+    // La restricción de hora para ASIGNAR la fecha de hoy se maneja en handleDayClick.
+    if (!fecha || fecha === '') {
+      console.log('  - Sin fecha asignada: siempre permitido modificar/cancelar')
+      return true // Siempre permitido modificar/cancelar si no hay fecha asignada
     }
+
+    // Comparar por cadenas YYYY-MM-DD en zona horaria local para evitar problemas de zona horaria
+    const todayString = formatLocalDate(today)
+    const isTodayLocal = fecha === todayString
     
-    // Normalizar fechas para comparar solo año, mes y día
-    today.setHours(0, 0, 0, 0)
-    serviceDate.setHours(0, 0, 0, 0)
+    console.log('  - todayString:', todayString)
+    console.log('  - isTodayLocal:', isTodayLocal)
     
-    // Log temporal para debug del servicio de mañana
-    if (fecha === '2025-08-22') {
-      console.log('🔍 DEBUG MAÑANA - FECHA:', fecha)
-      console.log('🔍 DEBUG MAÑANA - TODAY:', today.toISOString())
-      console.log('🔍 DEBUG MAÑANA - SERVICE DATE:', serviceDate.toISOString())
-      console.log('🔍 DEBUG MAÑANA - TODAY TIME:', today.getTime())
-      console.log('🔍 DEBUG MAÑANA - SERVICE TIME:', serviceDate.getTime())
-      console.log('🔍 DEBUG MAÑANA - ES HOY:', today.getTime() === serviceDate.getTime())
-      console.log('🔍 DEBUG MAÑANA - ES FUTURO:', serviceDate.getTime() > today.getTime())
-      console.log('🔍 DEBUG MAÑANA - ES PASADO:', serviceDate.getTime() < today.getTime())
-      console.log('🔍 DEBUG MAÑANA - DIFERENCIA:', serviceDate.getTime() - today.getTime())
-      console.log('🔍 DEBUG MAÑANA - DIFERENCIA DÍAS:', (serviceDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
-    }
-    
-    // Si es el día de hoy, verificar la hora
-    if (today.getTime() === serviceDate.getTime()) {
-      const currentHour = new Date().getHours()
-      const currentMinutes = new Date().getMinutes()
+    // Si es el día de hoy, verificar la hora y el estatus
+    if (isTodayLocal) {
+      const currentHour = today.getHours()
+      const currentMinutes = today.getMinutes()
       const currentTimeInMinutes = currentHour * 60 + currentMinutes
       const cutoffTimeInMinutes = 9 * 60 // 9:00 AM en minutos
       
-      return currentTimeInMinutes < cutoffTimeInMinutes
+      console.log('  - Es hoy, verificando hora:', currentHour + ':' + currentMinutes)
+      
+      // Si ya pasó de las 9:00 AM y el servicio está pagado (estatus 1), no se puede modificar
+      if (currentTimeInMinutes >= cutoffTimeInMinutes && estatus === 1) {
+        console.log('  - ❌ Bloqueado: pagado + después de 9:00 AM')
+        return false
+      }
+      
+      // Para servicios reservados (estatus 2), solo validar la hora
+      const result = currentTimeInMinutes < cutoffTimeInMinutes
+      console.log('  - Reservado, resultado:', result)
+      return result
     }
     
     // Si es un día futuro, siempre se puede modificar
-    if (serviceDate.getTime() > today.getTime()) {
+    if (fecha > todayString) {
+      console.log('  - ✅ Día futuro, permitido')
       return true
     }
     
     // Si es un día pasado, no se puede modificar
+    console.log('  - ❌ Día pasado, bloqueado')
     return false
+  }
+
+  // Bloqueo visual: pagado + fecha de hoy + después de 9:00 AM
+  const isPaidTodayLocked = (fecha: string | null, estatus: number) => {
+    if (estatus !== 1 || !fecha) return false
+
+    const [year, month, day] = fecha.split('-').map(Number)
+    const serviceDate = new Date(year, month - 1, day)
+    if (isNaN(serviceDate.getTime())) return false
+
+    const today = new Date()
+    const todayNormalized = new Date(today)
+    const serviceDateNormalized = new Date(serviceDate)
+    todayNormalized.setHours(0, 0, 0, 0)
+    serviceDateNormalized.setHours(0, 0, 0, 0)
+
+    if (todayNormalized.getTime() !== serviceDateNormalized.getTime()) return false
+
+    const currentMinutes = today.getHours() * 60 + today.getMinutes()
+    return currentMinutes >= 9 * 60
   }
 
   // Función para obtener mensaje de error de hora
@@ -233,7 +379,42 @@ export default function AsignarFechasPage() {
   const handleDayClick = (date: Date) => {
     if (isWeekend(date) || isPastDate(date)) return
     
-    const dateString = date.toISOString().split('T')[0]
+    // Usar la función formatLocalDate para evitar problemas de zona horaria
+    const dateString = formatLocalDate(date)
+    
+    // Verificar si se está intentando asignar la fecha de hoy después de las 9:00 AM
+    const today = new Date()
+    const todayString = formatLocalDate(today)
+    
+    // Comparar por cadenas YYYY-MM-DD en zona horaria local
+    const isTodayLocal = dateString === todayString
+    
+    console.log('🔍 DEBUG handleDayClick:')
+    console.log('  - dateString (seleccionado):', dateString)
+    console.log('  - todayString (hoy):', todayString)
+    console.log('  - isTodayLocal:', isTodayLocal)
+    console.log('  - selectedConcepto?.pago_estatus:', selectedConcepto?.pago_estatus)
+    console.log('  - showRestrictionModal (estado actual):', showRestrictionModal)
+    console.log('  - restrictionMessage (mensaje actual):', restrictionMessage)
+    
+    if (isTodayLocal) {
+      const currentHour = today.getHours()
+      const currentMinutes = today.getMinutes()
+      
+      console.log('  - Es hoy, verificando hora:', currentHour + ':' + currentMinutes)
+      
+      if (currentHour > 9 || (currentHour === 9 && currentMinutes > 0)) {
+        // Si el servicio ya está pagado, no se puede cambiar después de las 9:00 AM
+        const message = selectedConcepto?.pago_estatus === 1
+          ? "No se puede cambiar la fecha de servicios pagados del día actual después de las 9:00 AM, ya que el pedido pasó a entrega."
+          : "No se puede asignar la fecha de hoy después de las 9:00 AM"
+        setRestrictionMessage(message)
+        setShowRestrictionModal(true)
+        return
+      }
+    }
+    
+    console.log('  - ✅ Fecha permitida, procediendo...')
     setSelectedDate(dateString)
     updateFecha(dateString)
   }
@@ -326,25 +507,128 @@ export default function AsignarFechasPage() {
       {/* Main Content */}
       <div className="relative z-10 max-w-7xl mx-auto p-6">
         <div className="bg-white rounded-xl shadow-lg p-6">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
-                <FaCalendarAlt className="text-purple-600 text-xl" />
-              </div>
-              <div>
-                <h2 className="text-xl font-bold text-gray-800">Pagos y Reservas</h2>
-                <p className="text-gray-600 text-sm">Haz clic en el calendario para cambiar fechas o cancelar servicios</p>
+          <div className="flex flex-col gap-4 mb-6">
+            {/* Primera fila: Botones, Estatus y Número de Orden */}
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              {/* Estatus y Número de Orden */}
+              {conceptosPagados.length > 0 && (
+                <div className="flex flex-col gap-3">
+                  {/* Primera fila: Estatus y Número de Orden */}
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    {/* Estatus de la Orden */}
+                    <div className={`inline-flex items-center gap-3 px-4 py-2.5 rounded-xl text-base font-bold shadow-lg border-2 ${
+                      conceptosPagados.every(item => item.pago_estatus === 1)
+                        ? 'bg-gradient-to-r from-green-400 to-green-500 text-white border-green-600'
+                        : 'bg-gradient-to-r from-orange-400 to-orange-500 text-white border-orange-600'
+                    }`}>
+                      {conceptosPagados.every(item => item.pago_estatus === 1) ? (
+                        <>
+                          <div className="w-6 h-6 bg-white/20 rounded-full flex items-center justify-center">
+                            <FaCreditCard className="text-white text-sm" />
+                          </div>
+                          <span>Estatus de la Orden: Pagada</span>
+                        </>
+                      ) : (
+                        <>
+                          <div className="w-6 h-6 bg-white/20 rounded-full flex items-center justify-center">
+                            <FaClock className="text-white text-sm" />
+                          </div>
+                          <span>Estatus de la Orden: Pendiente de pago</span>
+                        </>
+                      )}
+                    </div>
+                    
+                    {/* Número de Orden */}
+                    <div className="inline-flex items-center gap-2 px-3 py-2 bg-gray-100 rounded-lg border border-gray-200">
+                      <span className="text-gray-600 text-sm font-medium">📋</span>
+                      <span className="text-gray-700 text-sm font-semibold">
+                        Orden: {conceptosPagados[0]?.pago_orden || 'N/A'}
+                      </span>
+                    </div>
+                  </div>
+                  
+                  {/* Segunda fila: Desglose por estatus */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-white rounded-lg p-2 border border-purple-100 shadow-sm">
+                      <div className="flex items-center gap-2 mb-1">
+                        <FaCreditCard className="text-green-600 text-xs" />
+                        <span className="text-xs font-medium text-gray-700">Pagados</span>
+                      </div>
+                      <div className="text-sm font-bold text-green-600">
+                        ${conceptosPagados
+                          .filter(item => item.pago_estatus === 1)
+                          .reduce((sum, item) => sum + (item.pago_costo * item.pago_cantidad), 0)
+                          .toFixed(2)}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {conceptosPagados.filter(item => item.pago_estatus === 1).length} {conceptosPagados.filter(item => item.pago_estatus === 1).length === 1 ? 'servicio' : 'servicios'}
+                      </div>
+                    </div>
+                    
+                    <div className="bg-white rounded-lg p-2 border border-purple-100 shadow-sm">
+                      <div className="flex items-center gap-2 mb-1">
+                        <FaClock className="text-orange-600 text-xs" />
+                        <span className="text-xs font-medium text-gray-700">Pendientes</span>
+                      </div>
+                      <div className="text-sm font-bold text-orange-600">
+                        ${conceptosPagados
+                          .filter(item => item.pago_estatus === 2)
+                          .reduce((sum, item) => sum + (item.pago_costo * item.pago_cantidad), 0)
+                          .toFixed(2)}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {conceptosPagados.filter(item => item.pago_estatus === 2).length} {conceptosPagados.filter(item => item.pago_estatus === 2).length === 1 ? 'servicio' : 'servicios'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              {/* Botones de acción y contador */}
+              <div className="flex items-center gap-3">
+                {/* Botón Cancelar Orden */}
+                <button
+                  onClick={() => handleCancelarOrden()}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors shadow-lg ${
+                    conceptosPagados.length > 0 && conceptosPagados.every(item => item.pago_estatus === 1)
+                      ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
+                      : 'bg-red-500 text-white hover:bg-red-600'
+                  }`}
+                  title={
+                    conceptosPagados.length > 0 && conceptosPagados.every(item => item.pago_estatus === 1)
+                      ? 'No se puede cancelar: orden completamente pagada'
+                      : 'Cancelar toda la orden'
+                  }
+                  disabled={conceptosPagados.length > 0 && conceptosPagados.every(item => item.pago_estatus === 1)}
+                >
+                  <FaTrash className="text-sm" />
+                  <span className="hidden sm:inline">Cancelar Orden</span>
+                  <span className="sm:hidden">Cancelar</span>
+                </button>
+                
+                {/* Botón Historial */}
+                <button
+                  onClick={() => openHistorialModal()}
+                  className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg font-medium hover:bg-green-600 transition-colors shadow-lg"
+                  title="Ver historial de órdenes pagadas"
+                >
+                  <FaCheckCircle className="text-sm" />
+                  <span className="hidden sm:inline">Historial</span>
+                  <span className="sm:hidden">Hist</span>
+                </button>
+                
+                {/* Contador visual */}
+                <div className="bg-gradient-to-r from-purple-500 to-purple-600 text-white px-4 py-2 rounded-full shadow-lg animate-pulse">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm">🍽️</span>
+                    <span className="text-sm font-medium">Total:</span>
+                    <span className="text-xl font-bold">{conceptosPagados.length}</span>
+                  </div>
+                </div>
               </div>
             </div>
             
-            {/* Contador visual */}
-            <div className="bg-gradient-to-r from-purple-500 to-purple-600 text-white px-4 py-2 rounded-full shadow-lg animate-pulse">
-              <div className="flex items-center gap-2">
-                <span className="text-sm">🍽️</span>
-                <span className="text-sm font-medium">Total:</span>
-                <span className="text-xl font-bold">{conceptosPagados.length}</span>
-              </div>
-            </div>
+
           </div>
 
           {isLoadingConceptos ? (
@@ -384,24 +668,6 @@ export default function AsignarFechasPage() {
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
                         <h3 className="font-semibold text-gray-800">{concepto.pago_descripcion}</h3>
-                        {/* Indicador de estatus */}
-                        <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
-                          concepto.pago_estatus === 1
-                            ? 'bg-green-100 text-green-700'
-                            : 'bg-yellow-100 text-yellow-700'
-                        }`}>
-                          {concepto.pago_estatus === 1 ? (
-                            <>
-                              <FaCreditCard className="text-xs" />
-                              <span>Pagado</span>
-                            </>
-                          ) : (
-                            <>
-                              <FaClock className="text-xs" />
-                              <span>Reservado</span>
-                            </>
-                          )}
-                        </div>
                       </div>
                       <div className="flex gap-4 text-sm text-gray-600">
                         <span>Cantidad: {concepto.pago_cantidad}</span>
@@ -411,16 +677,18 @@ export default function AsignarFechasPage() {
                       <p className={`font-medium text-sm ${
                         concepto.pago_estatus === 1 ? 'text-green-600' : 'text-yellow-600'
                       }`}>
-                        Fecha programada: {concepto.pago_fecha}
+                        {concepto.pago_fecha ? (
+                          `Fecha programada: ${concepto.pago_fecha}`
+                        ) : (
+                          <span className="text-red-600 font-semibold">⚠️ Sin fecha asignada</span>
+                        )}
                       </p>
-                      
-                      {/* Indicador de restricción de hora para servicios del día actual */}
-                      {!canModifyTodayService(concepto.pago_fecha) && (
+                      {isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus) && (
                         <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded-lg">
                           <div className="flex items-center gap-2 text-red-700 text-xs">
                             <FaExclamationTriangle className="text-red-500" />
                             <span className="font-medium">
-                              No se puede modificar después de las 9:00 AM
+                              No se puede modificar: servicio pagado del día de hoy después de las 9:00 AM.
                             </span>
                           </div>
                         </div>
@@ -431,34 +699,38 @@ export default function AsignarFechasPage() {
                     <button
                       onClick={() => openDateModal(concepto)}
                       className={`flex items-center gap-2 px-3 py-2 rounded-lg font-medium text-sm transition-colors ${
-                        canModifyTodayService(concepto.pago_fecha)
-                          ? 'bg-purple-500 text-white hover:bg-purple-600'
-                          : 'bg-gray-400 text-gray-200 cursor-not-allowed'
+                        isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus)
+                          ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
+                          : 'bg-purple-500 text-white hover:bg-purple-600'
                       }`}
-                      disabled={!canModifyTodayService(concepto.pago_fecha)}
                       title={
-                        !canModifyTodayService(concepto.pago_fecha)
-                          ? getTimeErrorMessage()
+                        isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus)
+                          ? 'No disponible: servicio pagado del día de hoy después de las 9:00 AM'
                           : 'Cambiar fecha del servicio'
                       }
+                      disabled={isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus)}
                     >
                       <FaCalendarAlt className="text-sm" />
                       <span className="hidden sm:inline">Cambiar Fecha</span>
                       <span className="sm:hidden">Fecha</span>
                     </button>
+                    
+                    {/* Botón Cancelar Individual */}
                     <button
                       onClick={() => openCancelModal(concepto)}
                       className={`flex items-center gap-2 px-3 py-2 rounded-lg font-medium text-sm transition-colors ${
-                        canModifyTodayService(concepto.pago_fecha)
-                          ? 'bg-red-500 text-white hover:bg-red-600'
-                          : 'bg-gray-400 text-gray-200 cursor-not-allowed'
+                        conceptosPagados.every(item => item.pago_estatus === 1) || isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus)
+                          ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
+                          : 'bg-red-500 text-white hover:bg-red-600'
                       }`}
-                      disabled={!canModifyTodayService(concepto.pago_fecha)}
                       title={
-                        !canModifyTodayService(concepto.pago_fecha)
-                          ? getTimeErrorMessage()
-                          : 'Cancelar servicio'
+                        conceptosPagados.every(item => item.pago_estatus === 1)
+                          ? 'No se puede cancelar: orden completamente pagada'
+                          : isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus)
+                          ? 'No disponible: servicio pagado del día de hoy después de las 9:00 AM'
+                          : 'Cancelar servicio individual'
                       }
+                      disabled={conceptosPagados.every(item => item.pago_estatus === 1) || isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus)}
                     >
                       <FaTrash className="text-sm" />
                       <span className="hidden sm:inline">Cancelar</span>
@@ -467,6 +739,8 @@ export default function AsignarFechasPage() {
                   </div>
                 </div>
               ))}
+              
+
             </div>
           )}
         </div>
@@ -560,7 +834,7 @@ export default function AsignarFechasPage() {
                   {generateCalendarDays().map((date, index) => {
                     const isCurrentMonth = date.getMonth() === currentMonth.getMonth()
                     const isToday = date.toDateString() === new Date().toDateString()
-                    const dateString = date.toISOString().split('T')[0]
+                    const dateString = formatLocalDate(date)
                     const isSelected = selectedDate === dateString
                     const isPast = isPastDate(date)
                     const isWeekendDay = isWeekend(date)
@@ -692,6 +966,299 @@ export default function AsignarFechasPage() {
                 >
                   <FaTrash className="text-sm" />
                   Sí, Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Cancelación de Orden Completa */}
+      {showCancelOrderModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[90] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full transform transition-all">
+            {/* Header del modal con advertencia */}
+            <div className="relative p-6 border-b border-red-200 bg-gradient-to-r from-red-50 to-orange-50">
+              <div className="flex items-center gap-4">
+                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center shadow-lg">
+                  <FaExclamationTriangle className="text-red-600 text-2xl" />
+                </div>
+                <div>
+                  <h2 className="text-2xl font-bold text-red-700">⚠️ ADVERTENCIA CRÍTICA</h2>
+                  <p className="text-red-600 font-medium">Cancelación de Orden Completa</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowCancelOrderModal(false)}
+                className="absolute top-4 right-4 w-8 h-8 bg-red-100 hover:bg-red-200 rounded-full flex items-center justify-center transition-colors"
+              >
+                <FaTimes className="text-red-600 text-sm" />
+              </button>
+            </div>
+
+            {/* Contenido del modal con información detallada */}
+            <div className="p-6">
+              <div className="bg-red-50 border-2 border-red-200 rounded-lg p-4 mb-6">
+                <div className="flex items-start gap-3">
+                  <FaExclamationTriangle className="text-red-500 text-xl mt-1 flex-shrink-0" />
+                  <div className="flex-1">
+                    <p className="text-red-800 font-bold text-lg mb-3">
+                      ¿Estás completamente seguro de que deseas cancelar TODA la orden?
+                    </p>
+                    <p className="text-red-700 text-sm mb-4">
+                      Esta acción eliminará permanentemente todos los servicios de la orden y <strong>NO SE PUEDE DESHACER</strong>.
+                    </p>
+                    
+                    {/* Resumen de la orden */}
+                    <div className="bg-white rounded-lg p-4 border border-red-100">
+                      <h4 className="font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                        <span className="text-purple-600">📋</span>
+                        Resumen de la Orden a Cancelar
+                      </h4>
+                      <div className="space-y-2">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-600">Total de servicios:</span>
+                          <span className="font-semibold text-red-600">{conceptosPagados.length}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-600">Valor total:</span>
+                          <span className="font-semibold text-red-600">
+                            ${conceptosPagados.reduce((sum, item) => sum + (item.pago_costo * item.pago_cantidad), 0).toFixed(2)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-600">Orden:</span>
+                          <span className="font-semibold text-purple-600">
+                            {conceptosPagados[0]?.pago_orden || 'N/A'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Lista de servicios que se cancelarán */}
+              <div className="mb-6">
+                <h4 className="font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                  <span className="text-orange-600">🍽️</span>
+                  Servicios que se eliminarán:
+                </h4>
+                <div className="max-h-32 overflow-y-auto space-y-2">
+                  {conceptosPagados.map((concepto, index) => (
+                    <div key={concepto.id} className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg border border-gray-200">
+                      <span className="text-lg">{getProductEmoji(concepto.pago_descripcion)}</span>
+                      <div className="flex-1">
+                        <p className="font-medium text-gray-800 text-sm">{concepto.pago_descripcion}</p>
+                        <p className="text-xs text-gray-600">
+                          {concepto.pago_fecha ? `Fecha: ${concepto.pago_fecha}` : 'Sin fecha asignada'}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-semibold text-red-600 text-sm">
+                          ${(concepto.pago_costo * concepto.pago_cantidad).toFixed(2)}
+                        </p>
+                        <p className="text-xs text-gray-500">x{concepto.pago_cantidad}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Botones de acción */}
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowCancelOrderModal(false)}
+                  className="flex-1 px-6 py-3 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition-colors flex items-center justify-center gap-2"
+                >
+                  <FaTimes className="text-sm" />
+                  NO, Mantener Orden
+                </button>
+                <button
+                  onClick={executeCancelOrder}
+                  className="flex-1 px-6 py-3 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition-colors flex items-center justify-center gap-2 shadow-lg"
+                >
+                  <FaTrash className="text-sm" />
+                  SÍ, Cancelar TODA la Orden
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Éxito */}
+      {showSuccessModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[90] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 text-center">
+              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <FaCheckCircle className="text-green-600 text-2xl" />
+              </div>
+              <h3 className="text-lg font-bold text-green-600 mb-4">¡Operación Exitosa!</h3>
+              <p className="text-gray-800 text-sm mb-6">{successMessage}</p>
+              <button
+                onClick={() => setShowSuccessModal(false)}
+                className="w-full px-6 py-3 bg-green-500 text-white rounded-lg font-medium hover:bg-green-600 transition-colors"
+              >
+                Entendido
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Restricción de Tiempo */}
+      {showRestrictionModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[90] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 text-center">
+              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <FaExclamationTriangle className="text-red-600 text-2xl" />
+              </div>
+              <h3 className="text-lg font-bold text-red-600 mb-4">Restricción de Tiempo</h3>
+              <p className="text-gray-800 text-sm mb-6">{restrictionMessage}</p>
+              <button
+                onClick={() => setShowRestrictionModal(false)}
+                className="w-full px-6 py-3 bg-green-500 text-white rounded-lg font-medium hover:bg-green-600 transition-colors"
+              >
+                Entendido
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Historial */}
+      {showHistorialModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[90] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              {/* Header */}
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+                    <FaCheckCircle className="text-green-600 text-xl" />
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold text-gray-800">Historial de Órdenes</h2>
+                    <p className="text-gray-600 text-sm">Órdenes pagadas pasadas al día actual</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowHistorialModal(false)}
+                  className="w-8 h-8 bg-gray-100 hover:bg-gray-200 rounded-full flex items-center justify-center transition-colors"
+                >
+                  <FaTimes className="text-gray-600 text-sm" />
+                </button>
+              </div>
+
+              {/* Contenido del historial */}
+              {Object.keys(historialData).length === 0 ? (
+                <div className="text-center py-12">
+                  <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <FaCheckCircle className="text-gray-400 text-2xl" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-gray-800 mb-2">No hay historial disponible</h3>
+                  <p className="text-gray-600">Aún no tienes órdenes pagadas en el historial.</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {Object.entries(historialData).map(([orderNumber, items]) => {
+                    const totalOrder = items.reduce((sum, item) => sum + (item.pago_costo * item.pago_cantidad), 0)
+                    const orderDate = items[0]?.pago_fecha || 'Sin fecha'
+                    
+                    return (
+                      <div key={orderNumber} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                        <div className="flex items-center justify-between mb-3">
+                          <div>
+                            <h3 className="font-bold text-gray-800 text-lg">Orden: {orderNumber}</h3>
+                            <p className="text-gray-600 text-sm">Fecha: {orderDate}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-2xl font-bold text-green-600">${totalOrder.toFixed(2)}</p>
+                            <p className="text-gray-600 text-sm">{items.length} servicio(s)</p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => openOrderDetailModal(orderNumber)}
+                          className="w-full px-4 py-2 bg-blue-500 text-white rounded-lg font-medium hover:bg-blue-600 transition-colors text-sm"
+                        >
+                          Ver Detalle de la Orden
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Detalle de Orden */}
+      {showOrderDetailModal && selectedOrderForDetail && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[95] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              {/* Header */}
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+                    <span className="text-blue-600 text-xl">📋</span>
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-800">Detalle de la Orden</h2>
+                    <p className="text-gray-600 text-sm">{selectedOrderForDetail}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowOrderDetailModal(false)}
+                  className="w-8 h-8 bg-gray-100 hover:bg-gray-200 rounded-full flex items-center justify-center transition-colors"
+                >
+                  <FaTimes className="text-gray-600 text-sm" />
+                </button>
+              </div>
+
+              {/* Lista de servicios */}
+              <div className="space-y-3 mb-6">
+                {historialData[selectedOrderForDetail]?.map((item, index) => (
+                  <div key={item.id} className="flex items-center gap-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                    <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-sm">
+                      <span className="text-lg">{getProductEmoji(item.pago_descripcion)}</span>
+                    </div>
+                    <div className="flex-1">
+                      <h4 className="font-semibold text-gray-800">{item.pago_descripcion}</h4>
+                      <div className="flex gap-4 text-sm text-gray-600">
+                        <span>Cantidad: {item.pago_cantidad}</span>
+                        <span>Precio: ${item.pago_costo.toFixed(2)}</span>
+                        <span>Fecha: {item.pago_fecha || 'Sin fecha'}</span>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-bold text-gray-800">${(item.pago_costo * item.pago_cantidad).toFixed(2)}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Total de la orden */}
+              <div className="border-t pt-4">
+                <div className="flex justify-between items-center">
+                  <span className="text-lg font-bold text-gray-800">Total de la Orden:</span>
+                  <span className="text-2xl font-bold text-green-600">
+                    ${historialData[selectedOrderForDetail]?.reduce((sum, item) => sum + (item.pago_costo * item.pago_cantidad), 0).toFixed(2)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Botón de cierre */}
+              <div className="mt-6">
+                <button
+                  onClick={() => setShowOrderDetailModal(false)}
+                  className="w-full px-6 py-3 bg-gray-500 text-white rounded-lg font-medium hover:bg-gray-600 transition-colors"
+                >
+                  Cerrar
                 </button>
               </div>
             </div>

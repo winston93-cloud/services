@@ -4,18 +4,93 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import Image from 'next/image'
-import { FaSignOutAlt, FaUsers, FaCog, FaChartLine, FaLock, FaLightbulb, FaStar, FaGem, FaEnvelope, FaBan, FaFileInvoice, FaIdCard, FaBars, FaTimes, FaArrowLeft } from 'react-icons/fa'
+import { FaSignOutAlt, FaUsers, FaCog, FaChartLine, FaLock, FaLightbulb, FaStar, FaGem, FaEnvelope, FaBan, FaFileInvoice, FaIdCard, FaBars, FaTimes, FaArrowLeft, FaCreditCard, FaExclamationTriangle, FaDollarSign, FaClock } from 'react-icons/fa'
+import { getTotalOrdenesPagadas, getAdeudosOrdenActual } from '@/lib/supabase'
 
 export default function ServicesPage() {
   const { user, logout, isLoading } = useAuth()
   const router = useRouter()
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const [totalOrdenesPagadas, setTotalOrdenesPagadas] = useState(0)
+  const [adeudosOrdenActual, setAdeudosOrdenActual] = useState(0)
+  const [isLoadingData, setIsLoadingData] = useState(true)
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const [autoUpdateInterval, setAutoUpdateInterval] = useState<NodeJS.Timeout | null>(null)
+
 
   useEffect(() => {
     if (!isLoading && !user) {
       router.push('/')
     }
   }, [user, isLoading, router])
+
+  useEffect(() => {
+    if (user) {
+      // Carga inicial
+      loadFinancialData()
+      
+      // Configurar actualización automática cada 30 segundos
+      const interval = setInterval(() => {
+        loadFinancialData()
+      }, 30000) // 30 segundos
+      
+      setAutoUpdateInterval(interval)
+      
+      // Cleanup: limpiar el intervalo cuando el componente se desmonte
+      return () => {
+        if (interval) {
+          clearInterval(interval)
+        }
+      }
+    }
+  }, [user])
+  
+  // Cleanup adicional para el intervalo
+  useEffect(() => {
+    return () => {
+      if (autoUpdateInterval) {
+        clearInterval(autoUpdateInterval)
+      }
+    }
+  }, [autoUpdateInterval])
+
+    const loadFinancialData = async () => {
+    if (!user) return
+    
+    try {
+      setIsLoadingData(true)
+      
+      // Cargar datos financieros reales desde Supabase
+      const [saldoResult, adeudosResult] = await Promise.all([
+        getTotalOrdenesPagadas(user.alumno_ref),
+        getAdeudosOrdenActual(user.alumno_ref)
+      ])
+      
+      if (saldoResult.success && saldoResult.total !== undefined) {
+        setTotalOrdenesPagadas(saldoResult.total)
+      } else {
+        console.error('Error obteniendo total de órdenes pagadas:', saldoResult.error)
+        setTotalOrdenesPagadas(0)
+      }
+      
+      if (adeudosResult.success && adeudosResult.adeudos !== undefined) {
+        setAdeudosOrdenActual(adeudosResult.adeudos)
+      } else {
+        console.error('Error obteniendo adeudos de la orden actual:', adeudosResult.error)
+        setAdeudosOrdenActual(0)
+      }
+      
+      // Actualizar timestamp de última actualización
+      setLastUpdated(new Date())
+      
+    } catch (error) {
+      console.error('Error cargando datos financieros:', error)
+      setTotalOrdenesPagadas(0)
+      setAdeudosOrdenActual(0)
+    } finally {
+      setIsLoadingData(false)
+    }
+  }
 
   const handleLogout = () => {
     logout()
@@ -65,8 +140,6 @@ export default function ServicesPage() {
     { icon: FaChartLine, title: "Asignar Fechas y Cancelaciones", desc: "Calendario para reservar días y cancelar", color: "from-purple-500 to-pink-500" },
     { icon: FaGem, title: "Saldo a Favor", desc: "Consultar montos por devoluciones", color: "from-green-500 to-teal-500" },
     { icon: FaFileInvoice, title: "Pagos Mensuales", desc: "Contratar servicios por mes completo", color: "from-indigo-500 to-purple-500" },
-    { icon: FaLock, title: "Adeudos Pendientes", desc: "Ver tardanzas y montos adeudados", color: "from-yellow-500 to-orange-500" },
-    { icon: FaCog, title: "Pago en Recepción", desc: "Servicios para el mismo día", color: "from-pink-500 to-rose-500" },
     { icon: FaLightbulb, title: "Corte Diario", desc: "Resumen de ingresos del día", color: "from-cyan-500 to-blue-500" },
     { icon: FaIdCard, title: "Función Manual", desc: "Cargar fechas posteriores (Maestro)", color: "from-teal-500 to-green-500" },
     { icon: FaEnvelope, title: "Registrar Adeudos", desc: "Control de horarios de salida", color: "from-violet-500 to-purple-500" },
@@ -230,17 +303,116 @@ export default function ServicesPage() {
       </div>
 
       {/* Main Content */}
-      <main className="relative z-10 max-w-7xl mx-auto py-8 sm:py-12 px-4 sm:px-6 lg:px-8">
-        <div className="text-center mb-12 sm:mb-16 animate-fadeIn">
-          <div className="flex justify-center items-center gap-2 text-purple-200">
-            <FaStar className="text-yellow-400 animate-pulse" />
-            <span className="text-lg sm:text-xl font-semibold text-white">Bienvenido al Ecosistema de servicios integrales Winston</span>
-            <FaStar className="text-yellow-400 animate-pulse delay-300" />
+      <main className="relative z-10 max-w-7xl mx-auto py-4 sm:py-6 px-4 sm:px-6 lg:px-8">
+        {/* Header Section with Financial Info */}
+        <div className="mb-4 sm:mb-6 animate-fadeIn">
+          
+          {/* Financial Information Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-3xl mx-auto">
+            {/* Auto-update Indicator */}
+            <div className="md:col-span-2 mb-1">
+              <div className="text-center">
+                <div className="flex items-center justify-center gap-4 text-blue-200 text-sm">
+                  <div className="flex items-center gap-2">
+                    <div className={`w-2 h-2 rounded-full ${isLoadingData ? 'bg-blue-400 animate-pulse' : 'bg-green-400'}`}></div>
+                    <span>
+                      {isLoadingData ? 'Actualizando datos...' : 'Actualización automática cada 30 segundos'}
+                    </span>
+                  </div>
+                  
+                  {lastUpdated && (
+                    <span className="text-blue-300">
+                      • Última actualización: {lastUpdated.toLocaleTimeString('es-ES', { 
+                        hour: '2-digit', 
+                        minute: '2-digit',
+                        second: '2-digit'
+                      })}
+                    </span>
+                  )}
+                  
+                  <button
+                    onClick={loadFinancialData}
+                    disabled={isLoadingData}
+                    className="ml-4 px-3 py-1 bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg text-white text-xs font-medium hover:bg-white/20 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Actualizar datos ahora"
+                  >
+                    {isLoadingData ? '⏳' : '🔄'} Actualizar
+                  </button>
+                </div>
+              </div>
+            </div>
+            {/* Órdenes Pagadas */}
+            <div className="bg-gradient-to-r from-green-500 to-emerald-600 rounded-xl p-4 shadow-lg border border-green-400/30 backdrop-blur-sm">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center">
+                    <FaCreditCard className="text-white text-lg" />
+                  </div>
+                  <div>
+                    <h3 className="text-white font-bold text-base">Órdenes Pagadas</h3>
+                    <p className="text-green-100 text-xs">Total histórico</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  {isLoadingData ? (
+                    <div className="flex flex-col items-end gap-1">
+                      <div className="w-16 h-6 bg-white/20 rounded animate-pulse"></div>
+                      <div className="w-10 h-3 bg-white/20 rounded animate-pulse"></div>
+                    </div>
+                  ) : (
+                    <div className="text-white">
+                      <div className="text-2xl font-bold">${totalOrdenesPagadas.toFixed(2)}</div>
+                      <div className="text-green-100 text-xs">MXN</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="mt-3 pt-3 border-t border-white/20">
+                <div className="flex items-center gap-2 text-green-100 text-xs">
+                  <FaDollarSign className="text-green-200" />
+                  <span>Total de todas las órdenes pagadas</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Adeudos de la Orden Actual */}
+            <div className="bg-gradient-to-r from-orange-500 to-red-600 rounded-xl p-4 shadow-lg border border-orange-400/30 backdrop-blur-sm">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center">
+                    <FaExclamationTriangle className="text-white text-lg" />
+                  </div>
+                  <div>
+                    <h3 className="text-white font-bold text-base">Adeudos de la Orden</h3>
+                    <p className="text-orange-100 text-xs">Requieren pago</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  {isLoadingData ? (
+                    <div className="flex flex-col items-end gap-1">
+                      <div className="w-16 h-6 bg-white/20 rounded animate-pulse"></div>
+                      <div className="w-10 h-3 bg-white/20 rounded animate-pulse"></div>
+                    </div>
+                  ) : (
+                    <div className="text-white">
+                      <div className="text-2xl font-bold">${adeudosOrdenActual.toFixed(2)}</div>
+                      <div className="text-orange-100 text-xs">MXN</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="mt-3 pt-3 border-t border-white/20">
+                <div className="flex items-center gap-2 text-orange-100 text-xs">
+                  <FaClock className="text-orange-200" />
+                  <span>Lo que debe de la orden actual</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
         {/* Services Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8 mb-12 sm:mb-16">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8 mb-12 sm:mb-16 mt-8 sm:mt-12">
           {services.map((service, index) => {
             const Icon = service.icon
             return (

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { FaSearch, FaShoppingCart, FaArrowLeft, FaPlus, FaMinus, FaTrash, FaTimes, FaDownload, FaPrint, FaCalendarAlt } from 'react-icons/fa'
 import { useAuth } from '@/contexts/AuthContext'
-import { getConceptosDesayunos, savePagoDesayunos, PagoDesayuno } from '@/lib/supabase'
+import { getConceptosDesayunos, savePagoDesayunos, PagoDesayuno, getAllPagosVigentes } from '@/lib/supabase'
 import jsPDF from 'jspdf'
 
 interface ConceptoDesayuno {
@@ -39,6 +39,26 @@ export default function ServiciosInternosPage() {
   const [showCalendar, setShowCalendar] = useState(false)
   const [calendarItem, setCalendarItem] = useState<CartItem | null>(null)
   const [currentMonth, setCurrentMonth] = useState(new Date())
+  const [showRestrictionModal, setShowRestrictionModal] = useState(false)
+  const [restrictionMessage, setRestrictionMessage] = useState('')
+  const [hasPendingOrder, setHasPendingOrder] = useState(false)
+  const [isCheckingPendingOrder, setIsCheckingPendingOrder] = useState(true)
+  const [pendingOrderNumber, setPendingOrderNumber] = useState<string>('')
+
+  // Helper: formatear fecha local YYYY-MM-DD sin offset de zona horaria
+  const formatLocalDate = (date: Date): string => {
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
+
+  // Helper: mostrar fecha amigable a partir de YYYY-MM-DD
+  const formatDateForDisplay = (dateStr: string): string => {
+    const [y, m, d] = dateStr.split('-').map(Number)
+    const localDate = new Date(y, (m as number) - 1, d)
+    return localDate.toLocaleDateString('es-ES')
+  }
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -48,7 +68,20 @@ export default function ServiciosInternosPage() {
 
   useEffect(() => {
     loadProductos()
+    checkPendingOrders()
   }, [])
+
+  // Verificar órdenes pendientes cuando el usuario regrese a esta página
+  useEffect(() => {
+    const handleFocus = () => {
+      if (user) {
+        checkPendingOrders()
+      }
+    }
+
+    window.addEventListener('focus', handleFocus)
+    return () => window.removeEventListener('focus', handleFocus)
+  }, [user])
 
   useEffect(() => {
     // Filtrar productos basado en el término de búsqueda
@@ -61,6 +94,32 @@ export default function ServiciosInternosPage() {
       setFilteredProductos(filtered)
     }
   }, [searchTerm, productos])
+
+  const checkPendingOrders = async () => {
+    if (!user) return
+    
+    try {
+      setIsCheckingPendingOrder(true)
+      const result = await getAllPagosVigentes(user.alumno_ref)
+      if (result.success && result.data) {
+        // Verificar si hay alguna orden pendiente (estatus 2)
+        const hasPending = result.data.some(item => item.pago_estatus === 2)
+        setHasPendingOrder(hasPending)
+        
+        // Si hay orden pendiente, obtener el número de orden del primer servicio pendiente
+        if (hasPending) {
+          const pendingService = result.data.find(item => item.pago_estatus === 2)
+          if (pendingService && pendingService.pago_orden) {
+            setPendingOrderNumber(pendingService.pago_orden)
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error verificando órdenes pendientes:', error)
+    } finally {
+      setIsCheckingPendingOrder(false)
+    }
+  }
 
   const loadProductos = async () => {
     try {
@@ -86,7 +145,7 @@ export default function ServiciosInternosPage() {
             : item
         )
       } else {
-        return [...prevCart, { ...producto, quantity: 1, fecha_pedido: new Date().toISOString().split('T')[0] }]
+        return [...prevCart, { ...producto, quantity: 1 }] // Sin fecha por defecto
       }
     })
     setSearchTerm('')
@@ -95,7 +154,12 @@ export default function ServiciosInternosPage() {
 
   const openCalendar = (item: CartItem) => {
     setCalendarItem(item)
-    setCurrentMonth(new Date(item.fecha_pedido || new Date().toISOString().split('T')[0]))
+    const parseDateStringToLocal = (dateStr: string): Date => {
+      const [y, m, d] = dateStr.split('-').map(Number)
+      return new Date(y, (m as number) - 1, d)
+    }
+    const baseDate = item.fecha_pedido ? parseDateStringToLocal(item.fecha_pedido) : new Date()
+    setCurrentMonth(baseDate)
     setShowCalendar(true)
   }
 
@@ -114,6 +178,7 @@ export default function ServiciosInternosPage() {
     today.setHours(0, 0, 0, 0)
     dateToCheck.setHours(0, 0, 0, 0)
     
+    // Solo bloquear días anteriores a hoy, no el día actual
     return dateToCheck < today
   }
 
@@ -147,7 +212,23 @@ export default function ServiciosInternosPage() {
   const handleDayClick = (date: Date) => {
     if (isWeekend(date) || isPastDate(date)) return
     
-    const dateString = date.toISOString().split('T')[0]
+    // Verificar restricción de hora para el día actual
+    const today = new Date()
+    const isToday = date.toDateString() === today.toDateString()
+    
+    if (isToday) {
+      const currentHour = today.getHours()
+      const currentMinute = today.getMinutes()
+      
+      // Si es después de las 09:00 AM, no permitir reservar para hoy
+      if (currentHour > 9 || (currentHour === 9 && currentMinute > 0)) {
+        setRestrictionMessage('No se puede reservar para el día de hoy después de las 09:00 AM. Por favor selecciona otro día.')
+        setShowRestrictionModal(true)
+        return
+      }
+    }
+    
+    const dateString = formatLocalDate(date)
     
     if (calendarItem) {
       setCart(prevCart =>
@@ -209,6 +290,13 @@ export default function ServiciosInternosPage() {
       return
     }
 
+    // Verificar si ya tiene una orden pendiente de pago
+    if (hasPendingOrder) {
+      setRestrictionMessage('No puedes crear una nueva orden porque ya tienes una orden pendiente de pago. Debes completar el pago de tu orden actual antes de crear una nueva.')
+      setShowRestrictionModal(true)
+      return
+    }
+
     setIsProcessingOrder(true)
     
     try {
@@ -217,10 +305,10 @@ export default function ServiciosInternosPage() {
         pago_ref: user.alumno_ref, // Número de control del alumno
         pago_descripcion: item.desayuno_nombre,
         pago_costo: item.costo,
-        pago_fecha: item.fecha_pedido || new Date().toISOString().split('T')[0], // Usar fecha personalizada o fecha actual como fallback
+        pago_fecha: item.fecha_pedido || null, // Usar fecha asignada o NULL si no hay fecha
         pago_cantidad: item.quantity,
         pago_orden: '', // Se asignará en la función savePagoDesayunos
-        pago_estatus: 2 // 2 = en proceso
+        pago_estatus: 2 // 2 = en proceso (tanto con fecha como sin fecha)
       }))
 
       console.log('📦 Datos que se van a guardar en la BD:', itemsToSave.map(item => ({
@@ -428,6 +516,16 @@ export default function ServiciosInternosPage() {
               </div>
             </div>
 
+            {/* Indicador de verificación de órdenes pendientes */}
+            {isCheckingPendingOrder && (
+              <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex items-center gap-3">
+                  <div className="w-5 h-5 border-2 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+                  <span className="text-blue-700 text-sm">Verificando órdenes pendientes...</span>
+                </div>
+              </div>
+            )}
+
             {/* Grid de productos */}
             <div className="bg-white rounded-xl shadow-lg p-6">
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -605,6 +703,34 @@ export default function ServiciosInternosPage() {
                 <h2 className="text-xl font-bold text-gray-800">Carrito</h2>
               </div>
 
+              {/* Advertencia de orden pendiente */}
+              {hasPendingOrder && (
+                <div className="mb-6 p-4 bg-orange-50 border-2 border-orange-200 rounded-lg">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center">
+                      <span className="text-orange-600 text-lg">⚠️</span>
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-orange-800 text-sm">Orden Pendiente de Pago</h3>
+                      <p className="text-orange-700 text-xs">
+                        Ya tienes una orden pendiente de pago. Debes completar el pago antes de crear una nueva orden.
+                      </p>
+                      {pendingOrderNumber && (
+                        <p className="text-orange-600 text-xs font-medium mt-1">
+                          Número de Orden: {pendingOrderNumber}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => router.push('/asignar-fechas')}
+                    className="w-full px-4 py-2 bg-orange-500 text-white rounded-lg font-medium hover:bg-orange-600 transition-colors text-sm"
+                  >
+                    Checar el Estatus de la Orden
+                  </button>
+                </div>
+              )}
+
               {cart.length === 0 ? (
                 <div className="text-center py-8">
                   <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -616,38 +742,63 @@ export default function ServiciosInternosPage() {
                 <>
                   <div className="space-y-3 mb-6 max-h-64 overflow-y-auto">
                     {cart.map((item) => (
-                      <div key={item.id} className="flex items-center justify-between bg-gray-50 rounded-lg p-3 border border-gray-200">
-                        <div className="flex-1">
-                          <h4 className="font-medium text-gray-800 text-sm">{item.desayuno_nombre}</h4>
-                          <p className="text-green-600 font-bold">${item.costo.toFixed(2)} c/u</p>
-                          <p className="text-blue-600 font-semibold text-xs">Total: ${(item.costo * item.quantity).toFixed(2)}</p>
-                          <p className="text-purple-600 font-medium text-xs">Fecha: {item.fecha_pedido || new Date().toISOString().split('T')[0]}</p>
+                      <div key={item.id} className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex-1">
+                            <h3 className="font-semibold text-gray-800">{item.desayuno_nombre}</h3>
+                            <p className="text-gray-600">${item.costo.toFixed(2)}</p>
+                            {/* Indicador de fecha */}
+                            <div className="mt-3">
+                              {item.fecha_pedido ? (
+                                <div className="flex items-center gap-2 text-sm bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+                                  <FaCalendarAlt className="text-green-600" />
+                                  <span className="text-green-700 font-medium">
+                                    Fecha: {formatDateForDisplay(item.fecha_pedido)}
+                                  </span>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-2 text-sm bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                                  <FaCalendarAlt className="text-red-600" />
+                                  <span className="text-red-700 font-medium font-semibold">
+                                    ⚠️ Sin fecha asignada
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-lg font-bold text-gray-800">${(item.costo * item.quantity).toFixed(2)}</p>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2 bg-white rounded-lg p-2 border border-gray-300">
+                        <div className="flex items-center gap-2 bg-gray-50 rounded-lg p-3 border border-gray-200">
                           <button
                             onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                            className="w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600"
+                            className="w-7 h-7 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg flex items-center justify-center hover:from-red-600 hover:to-red-700 transform hover:scale-110 transition-all duration-200 shadow-md hover:shadow-lg"
+                            title="Reducir cantidad"
                           >
-                            <FaMinus className="text-xs" />
+                            <FaMinus className="text-sm" />
                           </button>
-                          <span className="w-8 text-center font-bold text-gray-800 text-lg">{item.quantity}</span>
+                          <span className="w-10 text-center font-bold text-gray-800 text-lg bg-white px-2 py-1 rounded border">{item.quantity}</span>
                           <button
                             onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                            className="w-6 h-6 bg-green-500 text-white rounded-full flex items-center justify-center hover:bg-green-600"
+                            className="w-7 h-7 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg flex items-center justify-center hover:from-green-600 hover:to-green-700 transform hover:scale-110 transition-all duration-200 shadow-md hover:shadow-lg"
+                            title="Aumentar cantidad"
                           >
-                            <FaPlus className="text-xs" />
+                            <FaPlus className="text-sm" />
                           </button>
                           <button
                             onClick={() => openCalendar(item)}
-                            className="w-6 h-6 bg-purple-500 text-white rounded-full flex items-center justify-center hover:bg-purple-600 ml-2"
+                            className="w-8 h-8 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-lg flex items-center justify-center hover:from-purple-600 hover:to-purple-700 transform hover:scale-110 transition-all duration-200 ml-2 shadow-md hover:shadow-lg"
+                            title="Asignar fecha al servicio"
                           >
-                            <FaCalendarAlt className="text-xs" />
+                            <FaCalendarAlt className="text-sm" />
                           </button>
                           <button
                             onClick={() => removeFromCart(item.id)}
-                            className="w-6 h-6 bg-gray-500 text-white rounded-full flex items-center justify-center hover:bg-gray-600"
+                            className="w-8 h-8 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg flex items-center justify-center hover:from-red-600 hover:to-red-700 transform hover:scale-110 transition-all duration-200 shadow-md hover:shadow-lg"
+                            title="Eliminar del carrito"
                           >
-                            <FaTrash className="text-xs" />
+                            <FaTrash className="text-sm" />
                           </button>
                         </div>
                       </div>
@@ -665,14 +816,20 @@ export default function ServiciosInternosPage() {
                     <div className="space-y-3">
                       <button
                         onClick={handleProcessOrder}
-                        disabled={isProcessingOrder}
-                        className="w-full px-6 py-4 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg font-bold text-lg hover:from-green-600 hover:to-green-700 transform hover:scale-105 transition-all duration-200 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                        disabled={isProcessingOrder || hasPendingOrder}
+                        className={`w-full px-6 py-4 rounded-lg font-bold text-lg transition-all duration-200 shadow-lg ${
+                          hasPendingOrder
+                            ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
+                            : 'bg-gradient-to-r from-green-500 to-green-600 text-white hover:from-green-600 hover:to-green-700 transform hover:scale-105'
+                        } disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none`}
                       >
                         {isProcessingOrder ? (
                           <div className="flex items-center justify-center gap-3">
                             <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
                             <span>Procesando...</span>
                           </div>
+                        ) : hasPendingOrder ? (
+                          'Orden Pendiente de Pago'
                         ) : (
                           'Procesar Orden'
                         )}
@@ -782,68 +939,76 @@ export default function ServiciosInternosPage() {
         </div>
       )}
 
-      {/* Calendario Inline */}
+      {/* Calendario Moderno y Elegante */}
       {showCalendar && calendarItem && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full">
-            {/* Header del Calendario */}
-            <div className="flex items-center justify-between p-6 border-b border-gray-200">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
-                  <FaCalendarAlt className="text-purple-600 text-lg" />
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-[70] flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-hidden transform transition-all duration-300 scale-100">
+            {/* Header con gradiente y efectos */}
+            <div className="relative overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-r from-purple-600 via-blue-600 to-indigo-600"></div>
+              <div className="absolute inset-0 bg-gradient-to-br from-purple-600/90 via-blue-600/90 to-indigo-600/90"></div>
+              <div className="relative flex items-center justify-between p-6 text-white">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center border border-white/30 shadow-lg">
+                    <FaCalendarAlt className="text-white text-xl" />
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold mb-1">Seleccionar Fecha</h2>
+                    <p className="text-purple-100 font-medium">{calendarItem.desayuno_nombre}</p>
+                  </div>
                 </div>
-                <div>
-                  <h2 className="text-xl font-bold text-gray-800">Seleccionar Fecha</h2>
-                  <p className="text-sm text-gray-600">{calendarItem.desayuno_nombre}</p>
-                </div>
+                <button
+                  onClick={() => {
+                    setShowCalendar(false)
+                    setCalendarItem(null)
+                  }}
+                  className="w-10 h-10 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-xl flex items-center justify-center transition-all duration-200 border border-white/30 hover:scale-110 shadow-lg"
+                >
+                  <FaTimes className="text-white text-lg" />
+                </button>
               </div>
-              <button
-                onClick={() => {
-                  setShowCalendar(false)
-                  setCalendarItem(null)
-                }}
-                className="w-8 h-8 bg-gray-100 hover:bg-gray-200 rounded-full flex items-center justify-center transition-colors"
-              >
-                <FaTimes className="text-gray-600" />
-              </button>
             </div>
 
-            {/* Calendario */}
             <div className="p-6">
-              {/* Navegación de meses */}
-              <div className="flex items-center justify-between mb-6">
+              {/* Navegación de meses mejorada */}
+              <div className="flex items-center justify-between mb-8">
                 <button
                   onClick={() => navigateMonth(-1)}
-                  className="w-10 h-10 bg-gray-100 hover:bg-gray-200 rounded-lg flex items-center justify-center transition-colors"
+                  className="group w-12 h-12 bg-gradient-to-r from-gray-100 to-gray-200 hover:from-gray-200 hover:to-gray-300 rounded-xl flex items-center justify-center transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105"
                 >
-                  <span className="text-lg text-gray-600">‹</span>
+                  <span className="text-xl text-gray-600 group-hover:text-gray-800 transition-colors">‹</span>
                 </button>
-                <h3 className="text-xl font-bold text-gray-800 capitalize">
-                  {currentMonth.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}
-                </h3>
+                <div className="text-center">
+                  <h3 className="text-2xl font-bold text-gray-800 capitalize mb-1">
+                    {currentMonth.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}
+                  </h3>
+                  <div className="w-16 h-1 bg-gradient-to-r from-purple-500 to-blue-500 rounded-full mx-auto"></div>
+                </div>
                 <button
                   onClick={() => navigateMonth(1)}
-                  className="w-10 h-10 bg-gray-100 hover:bg-gray-200 rounded-lg flex items-center justify-center transition-colors"
+                  className="group w-12 h-12 bg-gradient-to-r from-gray-100 to-gray-200 hover:from-gray-200 hover:to-gray-300 rounded-xl flex items-center justify-center transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105"
                 >
-                  <span className="text-lg text-gray-600">›</span>
+                  <span className="text-xl text-gray-600 group-hover:text-gray-800 transition-colors">›</span>
                 </button>
               </div>
 
-              {/* Días de la semana */}
-              <div className="grid grid-cols-7 gap-1 mb-3">
+              {/* Días de la semana con estilo */}
+              <div className="grid grid-cols-7 gap-2 mb-4">
                 {['L', 'M', 'M', 'J', 'V', 'S', 'D'].map((day, index) => (
-                  <div key={index} className="text-center py-2 text-sm font-medium text-gray-600">
-                    {day}
+                  <div key={index} className="text-center py-3">
+                    <span className="text-sm font-semibold text-gray-500 bg-gray-50 px-2 py-1 rounded-lg">
+                      {day}
+                    </span>
                   </div>
                 ))}
               </div>
 
-              {/* Días del calendario */}
-              <div className="grid grid-cols-7 gap-1">
+              {/* Días del calendario con diseño moderno */}
+              <div className="grid grid-cols-7 gap-2">
                 {generateCalendarDays().map((date, index) => {
                   const isCurrentMonth = date.getMonth() === currentMonth.getMonth()
                   const isToday = date.toDateString() === new Date().toDateString()
-                  const dateString = date.toISOString().split('T')[0]
+                  const dateString = formatLocalDate(date)
                   const isSelected = calendarItem.fecha_pedido === dateString
                   const isPast = isPastDate(date)
                   const isWeekendDay = isWeekend(date)
@@ -855,40 +1020,66 @@ export default function ServiciosInternosPage() {
                       onClick={() => handleDayClick(date)}
                       disabled={isDisabled}
                       className={`
-                        h-10 w-full text-sm font-medium rounded-lg transition-all duration-200
+                        relative h-12 w-full text-sm font-medium rounded-xl transition-all duration-300 transform hover:scale-105
                         ${!isCurrentMonth 
-                          ? 'text-gray-300 cursor-not-allowed' 
+                          ? 'text-gray-300 cursor-not-allowed opacity-40' 
                           : isDisabled
                             ? 'text-gray-400 bg-gray-100 cursor-not-allowed opacity-50'
                             : isSelected
-                              ? 'bg-purple-500 text-white shadow-md'
+                              ? 'bg-gradient-to-r from-purple-500 to-purple-600 text-white shadow-lg shadow-purple-500/50 scale-110'
                               : isToday
-                                ? 'bg-blue-100 text-blue-600 font-bold'
-                                : 'text-gray-700 hover:bg-purple-100 hover:text-purple-600'
+                                ? 'bg-gradient-to-r from-blue-400 to-blue-500 text-white shadow-lg shadow-blue-500/50 font-bold'
+                                : 'text-gray-700 bg-white hover:bg-gradient-to-r hover:from-purple-50 hover:to-blue-50 hover:text-purple-600 border border-gray-200 hover:border-purple-300'
                         }
                       `}
                     >
                       {date.getDate()}
+                      {isSelected && (
+                        <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-400 rounded-full border-2 border-white animate-pulse"></div>
+                      )}
                     </button>
                   )
                 })}
               </div>
 
-              {/* Información adicional */}
-              <div className="mt-6 pt-4 border-t border-gray-200">
-                <div className="flex items-center gap-2 text-sm text-gray-600 mb-2">
-                  <div className="w-3 h-3 bg-purple-500 rounded-full"></div>
-                  <span>Fecha seleccionada</span>
-                </div>
-                <div className="flex items-center gap-2 text-sm text-gray-600 mb-2">
-                  <div className="w-3 h-3 bg-blue-100 rounded-full"></div>
-                  <span>Hoy</span>
-                </div>
-                <div className="flex items-center gap-2 text-sm text-gray-600">
-                  <div className="w-3 h-3 bg-gray-100 rounded-full"></div>
-                  <span>Días no disponibles (pasados, fines de semana)</span>
+              {/* Leyenda mejorada */}
+              <div className="mt-8 pt-6 border-t border-gray-200">
+                <h4 className="text-sm font-semibold text-gray-700 mb-4 text-center">Leyenda del Calendario</h4>
+                <div className="grid grid-cols-1 gap-3">
+                  <div className="flex items-center gap-3 p-3 bg-gradient-to-r from-purple-50 to-purple-100 rounded-xl border border-purple-200">
+                    <div className="w-4 h-4 bg-gradient-to-r from-purple-500 to-purple-600 rounded-full shadow-sm"></div>
+                    <span className="text-sm font-medium text-purple-700">Fecha seleccionada</span>
+                  </div>
+                  <div className="flex items-center gap-3 p-3 bg-gradient-to-r from-blue-50 to-blue-100 rounded-xl border border-blue-200">
+                    <div className="w-4 h-4 bg-gradient-to-r from-blue-400 to-blue-500 rounded-full shadow-sm"></div>
+                    <span className="text-sm font-medium text-blue-700">Hoy</span>
+                  </div>
+                  <div className="flex items-center gap-3 p-3 bg-gradient-to-r from-gray-50 to-gray-100 rounded-xl border border-gray-200">
+                    <div className="w-4 h-4 bg-gray-300 rounded-full shadow-sm"></div>
+                    <span className="text-sm font-medium text-gray-600">Días no disponibles (pasados, fines de semana)</span>
+                  </div>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+
+
+      {/* Modal de Restricción de Fecha */}
+      {showRestrictionModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[80] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 text-center">
+              <h3 className="text-lg font-bold text-red-600 mb-4">Restricción de Fecha</h3>
+              <p className="text-gray-800 text-sm mb-4">{restrictionMessage}</p>
+              <button
+                onClick={() => setShowRestrictionModal(false)}
+                className="w-full px-6 py-3 bg-red-500 text-white rounded-lg font-medium hover:bg-red-600 transition-colors"
+              >
+                Aceptar
+              </button>
             </div>
           </div>
         </div>
