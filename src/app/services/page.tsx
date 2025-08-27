@@ -2,9 +2,9 @@
 
 import { useAuth } from '@/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import Image from 'next/image'
-import { FaSignOutAlt, FaUsers, FaCog, FaChartLine, FaLock, FaLightbulb, FaStar, FaGem, FaEnvelope, FaBan, FaFileInvoice, FaIdCard, FaBars, FaTimes, FaArrowLeft, FaCreditCard, FaExclamationTriangle, FaDollarSign, FaClock } from 'react-icons/fa'
+import { FaSignOutAlt, FaUsers, FaChartLine, FaLightbulb, FaStar, FaGem, FaEnvelope, FaFileInvoice, FaIdCard, FaBars, FaTimes, FaArrowLeft, FaCreditCard, FaExclamationTriangle, FaDollarSign, FaClock } from 'react-icons/fa'
 import { getTotalOrdenesPagadas, getAdeudosOrdenActual, getSaldoAlumno } from '@/lib/supabase'
 
 export default function ServicesPage() {
@@ -19,43 +19,7 @@ export default function ServicesPage() {
   const [autoUpdateInterval, setAutoUpdateInterval] = useState<NodeJS.Timeout | null>(null)
 
 
-  useEffect(() => {
-    if (!isLoading && !user) {
-      router.push('/')
-    }
-  }, [user, isLoading, router])
-
-  useEffect(() => {
-    if (user) {
-      // Carga inicial
-      loadFinancialData()
-      
-      // Configurar actualización automática cada 30 segundos
-      const interval = setInterval(() => {
-        loadFinancialData()
-      }, 30000) // 30 segundos
-      
-      setAutoUpdateInterval(interval)
-      
-      // Cleanup: limpiar el intervalo cuando el componente se desmonte
-      return () => {
-        if (interval) {
-          clearInterval(interval)
-        }
-      }
-    }
-  }, [user])
-  
-  // Cleanup adicional para el intervalo
-  useEffect(() => {
-    return () => {
-      if (autoUpdateInterval) {
-        clearInterval(autoUpdateInterval)
-      }
-    }
-  }, [autoUpdateInterval])
-
-    const loadFinancialData = async () => {
+  const loadFinancialData = useCallback(async () => {
     if (!user) return
     
     try {
@@ -102,7 +66,43 @@ export default function ServicesPage() {
     } finally {
       setIsLoadingData(false)
     }
-  }
+  }, [user])
+
+  useEffect(() => {
+    if (!isLoading && !user) {
+      router.push('/')
+    }
+  }, [user, isLoading, router])
+
+  useEffect(() => {
+    if (user) {
+      // Carga inicial
+      loadFinancialData()
+      
+      // Configurar actualización automática cada 30 segundos
+      const interval = setInterval(() => {
+        loadFinancialData()
+      }, 30000) // 30 segundos
+      
+      setAutoUpdateInterval(interval)
+      
+      // Cleanup: limpiar el intervalo cuando el componente se desmonte
+      return () => {
+        if (interval) {
+          clearInterval(interval)
+        }
+      }
+    }
+  }, [user, loadFinancialData])
+  
+  // Cleanup adicional para el intervalo
+  useEffect(() => {
+    return () => {
+      if (autoUpdateInterval) {
+        clearInterval(autoUpdateInterval)
+      }
+    }
+  }, [autoUpdateInterval])
 
   const handleLogout = () => {
     logout()
