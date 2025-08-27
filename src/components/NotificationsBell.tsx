@@ -10,28 +10,23 @@ export default function NotificationsBell() {
   const { user } = useAuth()
   const [isOpen, setIsOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
-  const [count, setCount] = useState<number>(0)
+  const [count, setCount] = useState<number | null>(null)
   const [items, setItems] = useState<Notificacion[]>([])
-  const [selected, setSelected] = useState<Notificacion | null>(null)
+  const [selected, setSelected] = useState<Notificacion | undefined>(undefined)
   const [showModal, setShowModal] = useState(false)
   const [showAllModal, setShowAllModal] = useState(false)
-  const dropdownRef = useRef<HTMLDivElement | null>(null)
   const [mounted, setMounted] = useState(false)
-  const buttonRef = useRef<HTMLButtonElement | null>(null)
   const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number } | null>(null)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
 
-  const alumnoRef = useMemo(() => user?.alumno_ref ?? '', [user])
+  const alumnoRef = user?.alumno_ref
 
   const formatDateTime = (value?: string | null) => {
     if (!value) return ''
     const d = new Date(value as string)
     if (Number.isNaN(d.getTime())) return ''
     return d.toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' })
-  }
-
-  // No mostrar campana si no hay usuario autenticado (pantalla de login)
-  if (!alumnoRef) {
-    return null
   }
 
   // Montado para usar portal del modal
@@ -53,11 +48,10 @@ export default function NotificationsBell() {
   useEffect(() => {
     console.log('[Bell] showModal changed ->', showModal)
   }, [showModal])
+
   useEffect(() => {
     console.log('[Bell] showAllModal changed ->', showAllModal)
   }, [showAllModal])
-
-  // Eliminamos listeners globales; gestionamos cierre con un backdrop propio
 
   async function loadCount() {
     if (!alumnoRef) return
@@ -74,12 +68,21 @@ export default function NotificationsBell() {
   }
 
   useEffect(() => {
-    loadCount()
+    if (alumnoRef) {
+      loadCount()
+    }
   }, [alumnoRef])
 
   useEffect(() => {
-    if (isOpen) loadList()
-  }, [isOpen])
+    if (isOpen && alumnoRef) {
+      loadList()
+    }
+  }, [isOpen, alumnoRef])
+
+  // No mostrar campana si no hay usuario autenticado (pantalla de login)
+  if (!alumnoRef) {
+    return null
+  }
 
   const unreadItems = items.filter(n => n.estatus === 1)
   const unread = unreadItems.length
@@ -140,8 +143,8 @@ export default function NotificationsBell() {
                       <div className="flex-1 min-w-0">
                         <div className="font-semibold text-gray-900 text-sm sm:text-base mb-1 truncate">{n.asunto || 'Aviso'}</div>
                         <div className="text-[13px] leading-5 text-gray-700 line-clamp-3">{n.mensaje || ''}</div>
-                        {(n as any)?.created_at && (
-                          <div className="text-[11px] text-gray-500 mt-1">{formatDateTime((n as any).created_at)}</div>
+                        {n?.created_at && (
+                          <div className="text-[11px] text-gray-500 mt-1">{formatDateTime(n.created_at)}</div>
                         )}
                       </div>
                     </button>
@@ -162,7 +165,7 @@ export default function NotificationsBell() {
       {mounted && showModal && selected && createPortal(
         (
           <div className="fixed inset-0 z-[1000] flex items-center justify-center">
-            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => { setShowModal(false); setSelected(null) }} />
+            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => { setShowModal(false); setSelected(undefined) }} />
             <div className="relative w-[92%] max-w-2xl mx-4 rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.35)] overflow-hidden">
               {/* Header */}
               <div className="relative p-5 sm:p-6 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 text-white">
@@ -188,8 +191,8 @@ export default function NotificationsBell() {
                   <div className="text-gray-800 leading-relaxed whitespace-pre-wrap text-[15px]">
                     {selected.mensaje}
                   </div>
-                  {(selected as any)?.created_at && (
-                    <div className="text-[12px] text-gray-500 mt-4">{formatDateTime((selected as any).created_at)}</div>
+                  {selected?.created_at && (
+                    <div className="text-[12px] text-gray-500 mt-4">{formatDateTime(selected.created_at)}</div>
                   )}
                 </div>
               </div>
@@ -197,7 +200,7 @@ export default function NotificationsBell() {
               {/* Footer */}
               <div className="bg-gray-50 border-t border-gray-100 px-5 sm:px-6 py-4 flex flex-col sm:flex-row gap-2 sm:gap-3 sm:justify-end">
                 <button
-                  onClick={() => { setShowModal(false); setSelected(null) }}
+                  onClick={() => { setShowModal(false); setSelected(undefined) }}
                   className="px-4 py-2 rounded-lg bg-white text-gray-800 text-sm font-medium hover:bg-gray-100 border border-gray-200 shadow-sm"
                 >Cerrar</button>
                 <button
@@ -250,8 +253,8 @@ export default function NotificationsBell() {
                           <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${n.estatus === 1 ? 'bg-yellow-100 text-yellow-700' : 'bg-emerald-100 text-emerald-700'}`}>{n.estatus === 1 ? 'No leído' : 'Leído'}</span>
                         </div>
                         <div className="text-[13px] leading-5 text-gray-700 mt-1 whitespace-pre-wrap">{n.mensaje || ''}</div>
-                        {(n as any)?.created_at && (
-                          <div className="text-[11px] text-gray-500 mt-1">{formatDateTime((n as any).created_at)}</div>
+                        {n?.created_at && (
+                          <div className="text-[11px] text-gray-500 mt-1">{formatDateTime(n.created_at)}</div>
                         )}
                       </div>
                       {n.estatus === 1 && (

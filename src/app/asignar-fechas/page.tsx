@@ -22,7 +22,7 @@ export default function AsignarFechasPage() {
   const [showCancelOrderModal, setShowCancelOrderModal] = useState(false)
   const [selectedOrderItems, setSelectedOrderItems] = useState<PagoDesayuno[]>([])
   const [selectedOrderNumber, setSelectedOrderNumber] = useState<string>('')
-  const [selectedOrderTotal, setSelectedOrderTotal] = useState<number>(0)
+
   const [isUpdating, setIsUpdating] = useState(false)
   const [selectedDate, setSelectedDate] = useState<string>('')
   const [currentMonth, setCurrentMonth] = useState(new Date())
@@ -91,10 +91,9 @@ export default function AsignarFechasPage() {
   }
 
   const openCancelOrderModal = (orderItems: PagoDesayuno[], orderNumber: string, totalOrder: number) => {
-    setSelectedOrderItems(orderItems)
-    setSelectedOrderNumber(orderNumber)
-    setSelectedOrderTotal(totalOrder)
-    setShowCancelOrderModal(true)
+            setSelectedOrderItems(orderItems)
+        setSelectedOrderNumber(orderNumber)
+        setShowCancelOrderModal(true)
   }
 
   const openHistorialModal = async () => {
@@ -237,67 +236,6 @@ export default function AsignarFechasPage() {
         setShowSuccessModal(true)
       } else {
         setRestrictionMessage('Error al cancelar algunos servicios. Intente nuevamente.')
-        setShowRestrictionModal(true)
-      }
-    } catch (error) {
-      console.error('Error cancelando orden:', error)
-      setRestrictionMessage('Error inesperado al cancelar la orden')
-      setShowRestrictionModal(true)
-    }
-  }
-
-  // Función para cancelar una orden específica (agrupada)
-  const handleCancelarOrdenCompleta = async () => {
-    if (!user || selectedOrderItems.length === 0) return
-
-    // Verificar si se puede cancelar la orden completa
-    const canCancelOrder = selectedOrderItems.some(concepto => 
-      concepto.pago_estatus === 2 || // Si hay algún servicio no pagado, se puede cancelar
-      !isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus, concepto.pago_descripcion) // O si no está bloqueado por horario
-    )
-
-    if (!canCancelOrder) {
-      setRestrictionMessage("No se puede cancelar la orden completa: todos los servicios están pagados del día actual después de las 9:00 AM.")
-      setShowRestrictionModal(true)
-      setShowCancelOrderModal(false)
-      return
-    }
-
-    try {
-      // Cancelar todos los servicios de la orden específica
-      const cancelPromises = selectedOrderItems.map(concepto => 
-        deleteConceptoPagado(concepto.id!, user.alumno_ref)
-      )
-      
-      const results = await Promise.all(cancelPromises)
-      const allSuccessful = results.every(result => result.success)
-      
-      if (allSuccessful) {
-        // Calcular total abonado
-        const totalAbonado = results.reduce((total, result) => {
-          return total + (result.montoAbonado || 0)
-        }, 0)
-        
-        // Cerrar modal
-        setShowCancelOrderModal(false)
-        
-        // Recargar los datos para actualizar la vista
-        await loadConceptosPagados()
-        
-        // Mostrar mensaje de éxito con total abonado si aplica
-        if (totalAbonado > 0) {
-          setSuccessMessage(`Orden ${selectedOrderNumber} cancelada exitosamente. Se abonó $${totalAbonado.toFixed(2)} MXN a tu saldo.`)
-        } else {
-          setSuccessMessage(`Orden ${selectedOrderNumber} cancelada exitosamente.`)
-        }
-        setShowSuccessModal(true)
-        
-        // Limpiar variables de estado
-        setSelectedOrderItems([])
-        setSelectedOrderNumber('')
-        setSelectedOrderTotal(0)
-      } else {
-        setRestrictionMessage('Error al cancelar algunos servicios de la orden. Intente nuevamente.')
         setShowRestrictionModal(true)
       }
     } catch (error) {
@@ -460,10 +398,7 @@ export default function AsignarFechasPage() {
     return dateToCheck < today
   }
 
-  // Función para obtener mensaje de error de hora
-  const getTimeErrorMessage = () => {
-    return "No se pueden realizar cambios o cancelaciones después de las 9:00 AM para servicios del día actual."
-  }
+
 
   // Generar días del calendario
   const generateCalendarDays = () => {
@@ -471,7 +406,6 @@ export default function AsignarFechasPage() {
     const month = currentMonth.getMonth()
     
     const firstDayOfMonth = new Date(year, month, 1)
-    const lastDayOfMonth = new Date(year, month + 1, 0)
     const startDate = new Date(firstDayOfMonth)
     
     // Ir al lunes anterior
@@ -1221,7 +1155,7 @@ export default function AsignarFechasPage() {
                   Servicios que se eliminarán:
                 </h4>
                 <div className="max-h-32 overflow-y-auto space-y-2">
-                  {conceptosPagados.map((concepto, index) => (
+                  {conceptosPagados.map((concepto) => (
                     <div key={concepto.id} className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg border border-gray-200">
                       <span className="text-lg">{getProductEmoji(concepto.pago_descripcion)}</span>
                       <div className="flex-1">
@@ -1398,7 +1332,7 @@ export default function AsignarFechasPage() {
 
               {/* Lista de servicios */}
               <div className="space-y-3 mb-6">
-                {historialData[selectedOrderForDetail]?.map((item, index) => (
+                {historialData[selectedOrderForDetail]?.map((item) => (
                   <div key={item.id} className="flex items-center gap-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
                     <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-sm">
                       <span className="text-lg">{getProductEmoji(item.pago_descripcion)}</span>

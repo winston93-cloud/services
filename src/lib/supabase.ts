@@ -249,6 +249,7 @@ export interface Notificacion {
   asunto: string | null
   mensaje: string | null
   estatus: number // 1 = no leído, 2 = leído
+  created_at?: string
 }
 
 export async function getUnreadNotificationsCount(alumnoRef: string): Promise<{ success: boolean; count?: number; error?: string }> {
