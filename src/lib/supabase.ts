@@ -861,7 +861,7 @@ export async function processOrderWithSaldo(
     // 2. Obtener el saldo actual del alumno
     const saldoResult = await getSaldoAlumno(alumnoRef)
     if (!saldoResult.success) {
-      return { success: false, error: 'Error al obtener saldo del alumno' }
+      return { success: false, error: 'Error al obtener saldo del alumno', wasPaidWithSaldo: false }
     }
     
     const saldoActual = saldoResult.saldo || 0
@@ -892,7 +892,7 @@ export async function processOrderWithSaldo(
     
     if (error) {
       console.error('Error al insertar orden:', error)
-      return { success: false, error: 'Error al guardar la orden' }
+      return { success: false, error: 'Error al guardar la orden', wasPaidWithSaldo: false }
     }
     
     // 8. Si se pagó con saldo, actualizar el saldo del alumno
@@ -906,7 +906,8 @@ export async function processOrderWithSaldo(
         // Podríamos considerar hacer rollback de la orden
         return { 
           success: false, 
-          error: 'Orden procesada pero error al actualizar saldo. Contacte al administrador.' 
+          error: 'Orden procesada pero error al actualizar saldo. Contacte al administrador.',
+          wasPaidWithSaldo: false
         }
       }
       
@@ -928,6 +929,6 @@ export async function processOrderWithSaldo(
     
   } catch (error) {
     console.error('Error en processOrderWithSaldo:', error)
-    return { success: false, error: 'Error inesperado al procesar la orden' }
+    return { success: false, error: 'Error inesperado al procesar la orden', wasPaidWithSaldo: false }
   }
 }

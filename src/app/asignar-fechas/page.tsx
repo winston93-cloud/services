@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { FaArrowLeft, FaCalendarAlt, FaTimes, FaCheckCircle, FaExclamationTriangle, FaTrash, FaClock, FaCreditCard } from 'react-icons/fa'
@@ -34,19 +34,7 @@ export default function AsignarFechasPage() {
   const [showTimeRestrictionModal, setShowTimeRestrictionModal] = useState(false)
   const [timeRestrictionMessage, setTimeRestrictionMessage] = useState('')
 
-  useEffect(() => {
-    if (!isLoading && !user) {
-      router.push('/')
-    }
-  }, [user, isLoading, router])
-
-  useEffect(() => {
-    if (user) {
-      loadConceptosPagados()
-    }
-  }, [user])
-
-  const loadConceptosPagados = async () => {
+  const loadConceptosPagados = useCallback(async () => {
     if (!user) return
 
     try {
@@ -72,7 +60,19 @@ export default function AsignarFechasPage() {
     } finally {
       setIsLoadingConceptos(false)
     }
-  }
+  }, [user])
+
+  useEffect(() => {
+    if (!isLoading && !user) {
+      router.push('/')
+    }
+  }, [user, isLoading, router])
+
+  useEffect(() => {
+    if (user) {
+      loadConceptosPagados()
+    }
+  }, [user, loadConceptosPagados])
 
   const openDateModal = (concepto: PagoDesayuno) => {
     setSelectedConcepto(concepto)
@@ -90,7 +90,7 @@ export default function AsignarFechasPage() {
     setShowCancelModal(true)
   }
 
-  const openCancelOrderModal = (orderItems: PagoDesayuno[], orderNumber: string, totalOrder: number) => {
+  const openCancelOrderModal = (orderItems: PagoDesayuno[], orderNumber: string) => {
             setSelectedOrderItems(orderItems)
         setSelectedOrderNumber(orderNumber)
         setShowCancelOrderModal(true)
@@ -741,7 +741,7 @@ export default function AsignarFechasPage() {
                           
                           {/* Botón Cancelar Orden Completa */}
                           <button
-                            onClick={() => openCancelOrderModal(orderItems, orderNumber, totalOrder)}
+                            onClick={() => openCancelOrderModal(orderItems, orderNumber)}
                             className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors shadow-lg ${
                               orderItems.some(item => isPaidTodayLocked(item.pago_fecha, item.pago_estatus, item.pago_descripcion))
                                 ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
