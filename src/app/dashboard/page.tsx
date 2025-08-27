@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { FaSignOutAlt, FaStar, FaBars, FaTimes, FaUtensils } from 'react-icons/fa'
+import NotificationsBell from '@/components/NotificationsBell'
 import { useAuth } from '@/contexts/AuthContext'
 
 export default function DashboardPage() {
@@ -61,22 +62,32 @@ export default function DashboardPage() {
       </div>
 
       {/* Header */}
-      <header className="relative z-10 bg-white/10 backdrop-blur-xl border-b border-white/20">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16 sm:h-20">
+      <header className="relative z-10 bg-transparent">
+        {/* Barra superior a todo lo ancho */}
+        <div className="w-full bg-white/10 backdrop-blur-xl border-b border-white/20">
+          <div className="max-w-7xl mx-auto px-3 sm:px-4 py-2 flex items-center justify-between">
             {/* Hamburger Menu Button */}
-            <button
-              onClick={toggleMenu}
-              className="relative z-50 p-3 bg-white/10 backdrop-blur-xl rounded-xl border border-white/20 hover:bg-white/20 transition-all duration-300 transform hover:scale-105"
-            >
-              {isMenuOpen ? (
-                <FaTimes className="text-white text-xl animate-spin" />
-              ) : (
-                <FaBars className="text-white text-xl animate-pulse" />
-              )}
-            </button>
+            <div className="flex items-center gap-2 sm:gap-3">
+              <button
+                onClick={toggleMenu}
+                className="p-2 sm:p-3 bg-white/10 backdrop-blur-xl rounded-xl border border-white/20 hover:bg-white/20 transition-all duration-300"
+              >
+                {isMenuOpen ? (
+                  <FaTimes className="text-white text-xl" />
+                ) : (
+                  <FaBars className="text-white text-xl" />
+                )}
+              </button>
+              <button
+                onClick={handleLogout}
+                className="group inline-flex items-center px-3 py-2 sm:px-5 sm:py-2.5 bg-gradient-to-r from-red-500 to-pink-500 text-white font-bold rounded-xl shadow-lg hover:shadow-xl transform hover:scale-105 active:scale-95 transition-all duration-300 text-sm"
+              >
+                <FaSignOutAlt className="mr-2 h-4 w-4 group-hover:animate-bounce" />
+                <span>Cerrar Sesión</span>
+              </button>
+            </div>
 
-            <div className="animate-slideIn flex items-center gap-4">
+            <div className="animate-slideIn flex items-center gap-3">
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 bg-white/95 rounded-xl flex items-center justify-center overflow-hidden">
                   <Image
@@ -100,14 +111,10 @@ export default function DashboardPage() {
                 </div>
               </div>
             </div>
-            <button
-              onClick={handleLogout}
-              className="group inline-flex items-center px-3 py-2 sm:px-6 sm:py-3 bg-gradient-to-r from-red-500 to-pink-500 text-white font-bold rounded-2xl shadow-lg hover:shadow-xl transform hover:scale-105 active:scale-95 transition-all duration-300 animate-slideIn delay-200 text-sm sm:text-base"
-            >
-              <FaSignOutAlt className="mr-1 sm:mr-2 h-4 w-4 sm:h-5 sm:w-5 group-hover:animate-bounce" />
-              <span className="hidden sm:inline">Cerrar Sesión</span>
-              <span className="sm:hidden">Salir</span>
-            </button>
+
+            <div className="flex items-center gap-3">
+              <NotificationsBell />
+            </div>
           </div>
         </div>
       </header>
@@ -189,8 +196,11 @@ export default function DashboardPage() {
       {/* Main Content */}
       <main className="relative z-10 max-w-7xl mx-auto py-8 sm:py-12 px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-12 sm:mb-16 animate-fadeIn">
-          <span className="text-lg sm:text-xl font-semibold text-white">Bienvenido al Ecosistema de servicios integrales Winston</span>
-          <FaStar className="text-yellow-400 animate-pulse delay-300" />
+          <div className="relative flex justify-center mb-3">
+            <div className="absolute w-20 h-20 sm:w-24 sm:h-24 bg-yellow-300/30 blur-2xl rounded-full" />
+            <FaStar className="text-yellow-300 text-5xl sm:text-6xl animate-glow" />
+          </div>
+          <span className="text-xl sm:text-2xl font-bold text-white tracking-wide">Bienvenido</span>
         </div>
 
         {/* Main Service Card */}
@@ -239,6 +249,14 @@ export default function DashboardPage() {
 
         .delay-200 { animation-delay: 0.2s; }
         .delay-300 { animation-delay: 0.3s; }
+
+        @keyframes glow {
+          0% { filter: drop-shadow(0 0 0 rgba(250,204,21,.5)); transform: scale(1); }
+          50% { filter: drop-shadow(0 0 18px rgba(250,204,21,.9)); transform: scale(1.06); }
+          100% { filter: drop-shadow(0 0 0 rgba(250,204,21,.5)); transform: scale(1); }
+        }
+
+        .animate-glow { animation: glow 1.8s ease-in-out infinite; }
       `}</style>
     </div>
   )

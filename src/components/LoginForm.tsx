@@ -1,10 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { FaUser, FaGraduationCap, FaStar, FaLightbulb } from 'react-icons/fa'
-import { loginAlumno } from '@/lib/supabase'
+import { loginAlumno, testAlumnoTable } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 
 export default function LoginForm() {
@@ -13,6 +13,11 @@ export default function LoginForm() {
   const [error, setError] = useState('')
   const { login } = useAuth()
   const router = useRouter()
+
+  // Ejecutar test de tabla alumno al cargar el componente
+  useEffect(() => {
+    testAlumnoTable()
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

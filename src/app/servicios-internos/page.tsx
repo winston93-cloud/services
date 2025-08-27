@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { FaSearch, FaShoppingCart, FaArrowLeft, FaPlus, FaMinus, FaTrash, FaTimes, FaDownload, FaPrint, FaCalendarAlt } from 'react-icons/fa'
 import { useAuth } from '@/contexts/AuthContext'
-import { getConceptosDesayunos, savePagoDesayunos, PagoDesayuno, getAllPagosVigentes } from '@/lib/supabase'
+import { getConceptosDesayunos, PagoDesayuno, getAllPagosVigentes, processOrderWithSaldo } from '@/lib/supabase'
 import jsPDF from 'jspdf'
 
 interface ConceptoDesayuno {
@@ -34,6 +34,9 @@ export default function ServiciosInternosPage() {
     items: CartItem[]
     total: number
     date: string
+    wasPaidWithSaldo?: boolean
+    saldoUsed?: number
+    remainingSaldo?: number
   } | null>(null)
   const [isProcessingOrder, setIsProcessingOrder] = useState(false)
   const [showCalendar, setShowCalendar] = useState(false)
@@ -208,6 +211,13 @@ export default function ServiciosInternosPage() {
     return days
   }
 
+  // Helper: identificar si el concepto tiene restricción de tiempo
+  const isTimeRestrictedConcept = (nombre?: string | null) => {
+    if (!nombre) return false
+    const lower = nombre.toLowerCase()
+    return lower.includes('desayuno ch') || lower.includes('desayuno gde') || lower.includes('comida')
+  }
+
   // Manejar selección de día en el calendario
   const handleDayClick = (date: Date) => {
     if (isWeekend(date) || isPastDate(date)) return
@@ -220,11 +230,24 @@ export default function ServiciosInternosPage() {
       const currentHour = today.getHours()
       const currentMinute = today.getMinutes()
       
-      // Si es después de las 09:00 AM, no permitir reservar para hoy
-      if (currentHour > 9 || (currentHour === 9 && currentMinute > 0)) {
-        setRestrictionMessage('No se puede reservar para el día de hoy después de las 09:00 AM. Por favor selecciona otro día.')
-        setShowRestrictionModal(true)
-        return
+      // Solo aplicar restricciones de tiempo a conceptos específicos
+      if (isTimeRestrictedConcept(calendarItem?.desayuno_nombre)) {
+        // Restricción 9:00 AM para Desayuno CH/GDE
+        if ((calendarItem?.desayuno_nombre?.toLowerCase().includes('desayuno ch') || 
+             calendarItem?.desayuno_nombre?.toLowerCase().includes('desayuno gde')) && 
+            (currentHour > 9 || (currentHour === 9 && currentMinute > 0))) {
+          setRestrictionMessage('No se puede reservar para el día de hoy después de las 09:00 AM. Por favor selecciona otro día.')
+          setShowRestrictionModal(true)
+          return
+        }
+        
+        // Restricción 12:00 PM para Comida
+        if (calendarItem?.desayuno_nombre?.toLowerCase().includes('comida') && 
+            (currentHour > 12 || (currentHour === 12 && currentMinute > 0))) {
+          setRestrictionMessage('No se puede reservar para el día de hoy después de las 12:00 PM. Por favor selecciona otro día.')
+          setShowRestrictionModal(true)
+          return
+        }
       }
     }
     
@@ -307,7 +330,7 @@ export default function ServiciosInternosPage() {
         pago_costo: item.costo,
         pago_fecha: item.fecha_pedido || null, // Usar fecha asignada o NULL si no hay fecha
         pago_cantidad: item.quantity,
-        pago_orden: '', // Se asignará en la función savePagoDesayunos
+        pago_orden: '', // Se asignará en la función processOrderWithSaldo
         pago_estatus: 2 // 2 = en proceso (tanto con fecha como sin fecha)
       }))
 
@@ -337,8 +360,8 @@ export default function ServiciosInternosPage() {
         })
       })
 
-      // Guardar en la base de datos
-      const result = await savePagoDesayunos(itemsToSave, user.alumno_ref)
+      // Procesar orden con pago automático de saldo
+      const result = await processOrderWithSaldo(itemsToSave, user.alumno_ref)
 
       if (result.success && result.orderNumber) {
         // Preparar datos para el ticket
@@ -352,12 +375,22 @@ export default function ServiciosInternosPage() {
             day: '2-digit',
             hour: '2-digit',
             minute: '2-digit'
-          })
+          }),
+          wasPaidWithSaldo: result.wasPaidWithSaldo,
+          saldoUsed: result.saldoUsed,
+          remainingSaldo: result.remainingSaldo
         }
 
         setOrderData(orderInfo)
         setShowTicketModal(true)
         setCart([]) // Limpiar carrito después de procesar
+        
+        // Mostrar mensaje informativo sobre el pago
+        if (result.wasPaidWithSaldo) {
+          console.log(`✅ Orden pagada automáticamente con saldo. Saldo usado: $${result.saldoUsed}, Saldo restante: $${result.remainingSaldo}`)
+        } else {
+          console.log(`📋 Orden reservada. Saldo insuficiente para pago automático.`)
+        }
       } else {
         alert(`Error al procesar la orden: ${result.error}`)
       }
@@ -915,6 +948,33 @@ export default function ServiciosInternosPage() {
                   <span className="text-lg font-bold text-gray-800">Total:</span>
                   <span className="text-2xl font-bold text-green-600">${orderData.total.toFixed(2)}</span>
                 </div>
+                
+                {/* Información del Pago Automático con Saldo */}
+                {orderData.wasPaidWithSaldo && (
+                  <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-green-600">✅</span>
+                      <span className="text-green-800 font-semibold text-sm">PAGADO AUTOMÁTICAMENTE</span>
+                    </div>
+                    <div className="text-xs text-green-700 space-y-1">
+                      <p>Saldo usado: <span className="font-semibold">${orderData.saldoUsed?.toFixed(2)}</span></p>
+                      <p>Saldo restante: <span className="font-semibold">${orderData.remainingSaldo?.toFixed(2)}</span></p>
+                    </div>
+                  </div>
+                )}
+                
+                {!orderData.wasPaidWithSaldo && (
+                  <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-yellow-600">📋</span>
+                      <span className="text-yellow-800 font-semibold text-sm">ORDEN RESERVADA</span>
+                    </div>
+                    <div className="text-xs text-yellow-700">
+                      <p>Saldo insuficiente para pago automático</p>
+                      <p>Favor de pagar en caja para activar la orden</p>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="flex gap-3">
@@ -931,8 +991,17 @@ export default function ServiciosInternosPage() {
               </div>
 
               <div className="text-center mt-4">
-                <p className="text-red-600 font-semibold text-sm">Favor de pagar en caja en las Instalaciones del Colegio</p>
-                <p className="text-gray-500 text-xs">Conserve este ticket como comprobante</p>
+                {!orderData.wasPaidWithSaldo ? (
+                  <>
+                    <p className="text-red-600 font-semibold text-sm">Favor de pagar en caja en las Instalaciones del Colegio</p>
+                    <p className="text-gray-500 text-xs">Conserve este ticket como comprobante</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-green-600 font-semibold text-sm">✅ Orden pagada exitosamente con saldo</p>
+                    <p className="text-gray-500 text-xs">Conserve este ticket como comprobante de pago</p>
+                  </>
+                )}
               </div>
             </div>
           </div>

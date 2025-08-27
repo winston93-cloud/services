@@ -20,13 +20,19 @@ export default function AsignarFechasPage() {
   const [showSuccessModal, setShowSuccessModal] = useState(false)
   const [successMessage, setSuccessMessage] = useState('')
   const [showCancelOrderModal, setShowCancelOrderModal] = useState(false)
+  const [selectedOrderItems, setSelectedOrderItems] = useState<PagoDesayuno[]>([])
+  const [selectedOrderNumber, setSelectedOrderNumber] = useState<string>('')
+  const [selectedOrderTotal, setSelectedOrderTotal] = useState<number>(0)
   const [isUpdating, setIsUpdating] = useState(false)
   const [selectedDate, setSelectedDate] = useState<string>('')
   const [currentMonth, setCurrentMonth] = useState(new Date())
   const [showHistorialModal, setShowHistorialModal] = useState(false)
   const [historialData, setHistorialData] = useState<{[key: string]: PagoDesayuno[]}>({})
+  const [groupedOrders, setGroupedOrders] = useState<{[key: string]: PagoDesayuno[]}>({})
   const [selectedOrderForDetail, setSelectedOrderForDetail] = useState<string>('')
   const [showOrderDetailModal, setShowOrderDetailModal] = useState(false)
+  const [showTimeRestrictionModal, setShowTimeRestrictionModal] = useState(false)
+  const [timeRestrictionMessage, setTimeRestrictionMessage] = useState('')
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -47,7 +53,19 @@ export default function AsignarFechasPage() {
       setIsLoadingConceptos(true)
       const result = await getAllPagosVigentes(user.alumno_ref)
       if (result.success && result.data) {
-        setConceptosPagados(result.data)
+        // Agrupar por número de orden
+        const groupedOrders: {[key: string]: PagoDesayuno[]} = {}
+        result.data.forEach(item => {
+          if (item.pago_orden) {
+            if (!groupedOrders[item.pago_orden]) {
+              groupedOrders[item.pago_orden] = []
+            }
+            groupedOrders[item.pago_orden].push(item)
+          }
+        })
+        
+        setConceptosPagados(result.data) // Mantener la lista original para compatibilidad
+        setGroupedOrders(groupedOrders) // Nueva variable de estado para órdenes agrupadas
       }
     } catch (error) {
       console.error('Error cargando pagos:', error)
@@ -70,6 +88,13 @@ export default function AsignarFechasPage() {
   const openCancelModal = (concepto: PagoDesayuno) => {
     setSelectedConcepto(concepto)
     setShowCancelModal(true)
+  }
+
+  const openCancelOrderModal = (orderItems: PagoDesayuno[], orderNumber: string, totalOrder: number) => {
+    setSelectedOrderItems(orderItems)
+    setSelectedOrderNumber(orderNumber)
+    setSelectedOrderTotal(totalOrder)
+    setShowCancelOrderModal(true)
   }
 
   const openHistorialModal = async () => {
@@ -108,7 +133,7 @@ export default function AsignarFechasPage() {
     if (!selectedConcepto || !selectedConcepto.id) return
 
     // Validar si se puede cancelar antes de proceder
-    if (!canModifyTodayService(selectedConcepto.pago_fecha, selectedConcepto.pago_estatus)) {
+    if (!canModifyTodayService(selectedConcepto.pago_fecha, selectedConcepto.pago_estatus, selectedConcepto.pago_descripcion)) {
       const message = selectedConcepto.pago_estatus === 1 
         ? "No se pueden realizar cambios o cancelaciones para servicios pagados del día actual después de las 9:00 AM, ya que el pedido pasó a entrega."
         : "No se pueden realizar cambios o cancelaciones después de las 9:00 AM para servicios del día actual."
@@ -118,9 +143,14 @@ export default function AsignarFechasPage() {
       return
     }
 
+    if (!user) {
+      alert('Error: Usuario no autenticado')
+      return
+    }
+
     try {
       // Eliminar el registro de la base de datos
-      const result = await deleteConceptoPagado(selectedConcepto.id)
+      const result = await deleteConceptoPagado(selectedConcepto.id, user.alumno_ref)
       
       if (result.success) {
         // Actualizar el estado local removiendo el elemento
@@ -130,11 +160,20 @@ export default function AsignarFechasPage() {
         setShowCancelModal(false)
         setSelectedConcepto(null)
         
+        // Mostrar mensaje de éxito con monto abonado si aplica
+        if (result.montoAbonado && result.montoAbonado > 0) {
+          setSuccessMessage(`Servicio cancelado exitosamente. Se abonó $${result.montoAbonado.toFixed(2)} MXN a tu saldo.`)
+        } else {
+          setSuccessMessage('Servicio cancelado exitosamente.')
+        }
+        setShowSuccessModal(true)
+        
         console.log('Servicio cancelado exitosamente:', selectedConcepto.pago_descripcion)
       } else {
         // Mostrar error si falla la eliminación
         console.error('Error al cancelar servicio:', result.error)
-        alert(`Error al cancelar el servicio: ${result.error}`)
+        setRestrictionMessage(`Error al cancelar el servicio: ${result.error}`)
+        setShowRestrictionModal(true)
       }
     } catch (error) {
       console.error('Error cancelando concepto:', error)
@@ -150,7 +189,7 @@ export default function AsignarFechasPage() {
     // Solo se bloquea si TODOS los servicios están pagados (estatus 1) del día actual después de las 9 AM
     const canCancelOrder = conceptosPagados.some(concepto => 
       concepto.pago_estatus === 2 || // Si hay algún servicio no pagado, se puede cancelar
-      !isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus) // O si no está bloqueado por horario
+      !isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus, concepto.pago_descripcion) // O si no está bloqueado por horario
     )
 
     if (!canCancelOrder) {
@@ -165,24 +204,100 @@ export default function AsignarFechasPage() {
 
   // Función para ejecutar la cancelación de la orden
   const executeCancelOrder = async () => {
+    if (!user) {
+      alert('Error: Usuario no autenticado')
+      return
+    }
+
     try {
       // Cancelar todos los servicios de la orden
       const cancelPromises = conceptosPagados.map(concepto => 
-        deleteConceptoPagado(concepto.id!)
+        deleteConceptoPagado(concepto.id!, user.alumno_ref)
       )
       
       const results = await Promise.all(cancelPromises)
       const allSuccessful = results.every(result => result.success)
       
       if (allSuccessful) {
+        // Calcular total abonado
+        const totalAbonado = results.reduce((total, result) => {
+          return total + (result.montoAbonado || 0)
+        }, 0)
+        
         // Limpiar toda la lista
         setConceptosPagados([])
         setShowCancelOrderModal(false)
-        // Mostrar mensaje de éxito
-        setSuccessMessage('Orden cancelada exitosamente')
+        
+        // Mostrar mensaje de éxito con total abonado si aplica
+        if (totalAbonado > 0) {
+          setSuccessMessage(`Orden cancelada exitosamente. Se abonó $${totalAbonado.toFixed(2)} MXN a tu saldo.`)
+        } else {
+          setSuccessMessage('Orden cancelada exitosamente.')
+        }
         setShowSuccessModal(true)
       } else {
         setRestrictionMessage('Error al cancelar algunos servicios. Intente nuevamente.')
+        setShowRestrictionModal(true)
+      }
+    } catch (error) {
+      console.error('Error cancelando orden:', error)
+      setRestrictionMessage('Error inesperado al cancelar la orden')
+      setShowRestrictionModal(true)
+    }
+  }
+
+  // Función para cancelar una orden específica (agrupada)
+  const handleCancelarOrdenCompleta = async () => {
+    if (!user || selectedOrderItems.length === 0) return
+
+    // Verificar si se puede cancelar la orden completa
+    const canCancelOrder = selectedOrderItems.some(concepto => 
+      concepto.pago_estatus === 2 || // Si hay algún servicio no pagado, se puede cancelar
+      !isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus, concepto.pago_descripcion) // O si no está bloqueado por horario
+    )
+
+    if (!canCancelOrder) {
+      setRestrictionMessage("No se puede cancelar la orden completa: todos los servicios están pagados del día actual después de las 9:00 AM.")
+      setShowRestrictionModal(true)
+      setShowCancelOrderModal(false)
+      return
+    }
+
+    try {
+      // Cancelar todos los servicios de la orden específica
+      const cancelPromises = selectedOrderItems.map(concepto => 
+        deleteConceptoPagado(concepto.id!, user.alumno_ref)
+      )
+      
+      const results = await Promise.all(cancelPromises)
+      const allSuccessful = results.every(result => result.success)
+      
+      if (allSuccessful) {
+        // Calcular total abonado
+        const totalAbonado = results.reduce((total, result) => {
+          return total + (result.montoAbonado || 0)
+        }, 0)
+        
+        // Cerrar modal
+        setShowCancelOrderModal(false)
+        
+        // Recargar los datos para actualizar la vista
+        await loadConceptosPagados()
+        
+        // Mostrar mensaje de éxito con total abonado si aplica
+        if (totalAbonado > 0) {
+          setSuccessMessage(`Orden ${selectedOrderNumber} cancelada exitosamente. Se abonó $${totalAbonado.toFixed(2)} MXN a tu saldo.`)
+        } else {
+          setSuccessMessage(`Orden ${selectedOrderNumber} cancelada exitosamente.`)
+        }
+        setShowSuccessModal(true)
+        
+        // Limpiar variables de estado
+        setSelectedOrderItems([])
+        setSelectedOrderNumber('')
+        setSelectedOrderTotal(0)
+      } else {
+        setRestrictionMessage('Error al cancelar algunos servicios de la orden. Intente nuevamente.')
         setShowRestrictionModal(true)
       }
     } catch (error) {
@@ -200,7 +315,7 @@ export default function AsignarFechasPage() {
     console.log('  - selectedConcepto.pago_estatus:', selectedConcepto.pago_estatus)
 
     // Validar si se puede modificar antes de proceder
-    const canModify = canModifyTodayService(nuevaFecha, selectedConcepto.pago_estatus)
+    const canModify = canModifyTodayService(nuevaFecha, selectedConcepto.pago_estatus, selectedConcepto.pago_descripcion)
     console.log('  - canModifyTodayService resultado:', canModify)
     
     if (!canModify) {
@@ -217,7 +332,7 @@ export default function AsignarFechasPage() {
 
     setIsUpdating(true)
     try {
-      const result = await updateConceptoFecha(selectedConcepto.id!, nuevaFecha)
+      const result = await updateConceptoFecha(selectedConcepto.id!, nuevaFecha, selectedConcepto.pago_descripcion)
       if (result.success) {
         // Actualizar el estado local
         setConceptosPagados(prev =>
@@ -227,6 +342,20 @@ export default function AsignarFechasPage() {
               : concepto
           )
         )
+        
+        // También actualizar groupedOrders para mantener la vista sincronizada
+        setGroupedOrders(prev => {
+          const updated = { ...prev }
+          Object.keys(updated).forEach(orderNumber => {
+            updated[orderNumber] = updated[orderNumber].map(concepto =>
+              concepto.id === selectedConcepto.id
+                ? { ...concepto, pago_fecha: nuevaFecha }
+                : concepto
+            )
+          })
+          return updated
+        })
+        
         setShowDateModal(false)
         setSelectedConcepto(null)
       } else {
@@ -256,6 +385,68 @@ export default function AsignarFechasPage() {
     return `${year}-${month}-${day}`
   }
 
+  // Función auxiliar para verificar si es un concepto con restricción de tiempo
+  const isTimeRestrictedConcept = (descripcion: string) => {
+    const lower = descripcion.toLowerCase()
+    return lower.includes('desayuno ch') || lower.includes('desayuno gde') || lower.includes('comida')
+  }
+
+  // Función para verificar si se puede modificar un servicio de hoy
+  const canModifyTodayService = (fecha: string | null, estatus?: number, descripcion?: string) => {
+    if (!fecha || !descripcion) return true
+    
+    const today = new Date()
+    const todayString = today.toISOString().split('T')[0]
+    
+    if (fecha === todayString) {
+      const currentHour = today.getHours()
+      const currentMinute = today.getMinutes()
+      
+      // Restricción 9:00 AM para Desayuno CH/GDE
+      if ((descripcion.toLowerCase().includes('desayuno ch') || descripcion.toLowerCase().includes('desayuno gde')) && 
+          (currentHour > 9 || (currentHour === 9 && currentMinute > 0))) {
+        return false
+      }
+      
+      // Restricción 12:00 PM para Comida
+      if (descripcion.toLowerCase().includes('comida') && 
+          (currentHour > 12 || (currentHour === 12 && currentMinute > 0))) {
+        return false
+      }
+    }
+    
+    return true
+  }
+
+  // Función para verificar si un servicio pagado de hoy está bloqueado
+  const isPaidTodayLocked = (fecha: string | null, estatus: number, descripcion: string) => {
+    if (!fecha || estatus !== 1) return false
+    
+    const today = new Date()
+    const todayString = today.toISOString().split('T')[0]
+    
+    // Solo aplicar restricciones horarias a servicios del día actual
+    if (fecha === todayString) {
+      const currentHour = today.getHours()
+      const currentMinute = today.getMinutes()
+      
+      // Restricción 9:00 AM para Desayuno CH/GDE
+      if ((descripcion.toLowerCase().includes('desayuno ch') || descripcion.toLowerCase().includes('desayuno gde')) && 
+          (currentHour > 9 || (currentHour === 9 && currentMinute > 0))) {
+        return true
+      }
+      
+      // Restricción 12:00 PM para Comida
+      if (descripcion.toLowerCase().includes('comida') && 
+          (currentHour > 12 || (currentHour === 12 && currentMinute > 0))) {
+        return true
+      }
+    }
+    
+    // Para servicios de días futuros, siempre permitir cancelación (se abonará saldo)
+    return false
+  }
+
   // Función para verificar si una fecha es anterior a hoy
   const isPastDate = (date: Date) => {
     const today = new Date()
@@ -267,81 +458,6 @@ export default function AsignarFechasPage() {
     
     // Solo bloquear días estrictamente anteriores a hoy (no incluir hoy)
     return dateToCheck < today
-  }
-
-  // Función para validar si se puede modificar un servicio del día actual
-  const canModifyTodayService = (fecha: string | null, estatus?: number) => {
-    // Crear fechas en zona horaria local para evitar problemas de UTC
-    const today = new Date()
-    
-    console.log('🔍 DEBUG canModifyTodayService:')
-    console.log('  - fecha recibida:', fecha)
-    console.log('  - estatus:', estatus)
-    
-    // Si no hay fecha asignada, no se aplica la restricción de hora para cancelación.
-    // La restricción de hora para ASIGNAR la fecha de hoy se maneja en handleDayClick.
-    if (!fecha || fecha === '') {
-      console.log('  - Sin fecha asignada: siempre permitido modificar/cancelar')
-      return true // Siempre permitido modificar/cancelar si no hay fecha asignada
-    }
-
-    // Comparar por cadenas YYYY-MM-DD en zona horaria local para evitar problemas de zona horaria
-    const todayString = formatLocalDate(today)
-    const isTodayLocal = fecha === todayString
-    
-    console.log('  - todayString:', todayString)
-    console.log('  - isTodayLocal:', isTodayLocal)
-    
-    // Si es el día de hoy, verificar la hora y el estatus
-    if (isTodayLocal) {
-      const currentHour = today.getHours()
-      const currentMinutes = today.getMinutes()
-      const currentTimeInMinutes = currentHour * 60 + currentMinutes
-      const cutoffTimeInMinutes = 9 * 60 // 9:00 AM en minutos
-      
-      console.log('  - Es hoy, verificando hora:', currentHour + ':' + currentMinutes)
-      
-      // Si ya pasó de las 9:00 AM y el servicio está pagado (estatus 1), no se puede modificar
-      if (currentTimeInMinutes >= cutoffTimeInMinutes && estatus === 1) {
-        console.log('  - ❌ Bloqueado: pagado + después de 9:00 AM')
-        return false
-      }
-      
-      // Para servicios reservados (estatus 2), solo validar la hora
-      const result = currentTimeInMinutes < cutoffTimeInMinutes
-      console.log('  - Reservado, resultado:', result)
-      return result
-    }
-    
-    // Si es un día futuro, siempre se puede modificar
-    if (fecha > todayString) {
-      console.log('  - ✅ Día futuro, permitido')
-      return true
-    }
-    
-    // Si es un día pasado, no se puede modificar
-    console.log('  - ❌ Día pasado, bloqueado')
-    return false
-  }
-
-  // Bloqueo visual: pagado + fecha de hoy + después de 9:00 AM
-  const isPaidTodayLocked = (fecha: string | null, estatus: number) => {
-    if (estatus !== 1 || !fecha) return false
-
-    const [year, month, day] = fecha.split('-').map(Number)
-    const serviceDate = new Date(year, month - 1, day)
-    if (isNaN(serviceDate.getTime())) return false
-
-    const today = new Date()
-    const todayNormalized = new Date(today)
-    const serviceDateNormalized = new Date(serviceDate)
-    todayNormalized.setHours(0, 0, 0, 0)
-    serviceDateNormalized.setHours(0, 0, 0, 0)
-
-    if (todayNormalized.getTime() !== serviceDateNormalized.getTime()) return false
-
-    const currentMinutes = today.getHours() * 60 + today.getMinutes()
-    return currentMinutes >= 9 * 60
   }
 
   // Función para obtener mensaje de error de hora
@@ -398,19 +514,30 @@ export default function AsignarFechasPage() {
     console.log('  - restrictionMessage (mensaje actual):', restrictionMessage)
     
     if (isTodayLocal) {
-      const currentHour = today.getHours()
-      const currentMinutes = today.getMinutes()
-      
-      console.log('  - Es hoy, verificando hora:', currentHour + ':' + currentMinutes)
-      
-      if (currentHour > 9 || (currentHour === 9 && currentMinutes > 0)) {
-        // Si el servicio ya está pagado, no se puede cambiar después de las 9:00 AM
-        const message = selectedConcepto?.pago_estatus === 1
-          ? "No se puede cambiar la fecha de servicios pagados del día actual después de las 9:00 AM, ya que el pedido pasó a entrega."
-          : "No se puede asignar la fecha de hoy después de las 9:00 AM"
-        setRestrictionMessage(message)
-        setShowRestrictionModal(true)
-        return
+      // Solo aplicar restricción de 9:00 para Desayuno CH/GDE
+      if (!isTimeRestrictedConcept(selectedConcepto?.pago_descripcion || '')) {
+        console.log('  - Concepto no es desayuno/comida: permitir asignación el mismo día')
+      } else {
+        const currentHour = today.getHours()
+        const currentMinutes = today.getMinutes()
+        
+        console.log('  - Es hoy, verificando hora:', currentHour + ':' + currentMinutes)
+        
+        if ((selectedConcepto?.pago_descripcion?.toLowerCase().includes('desayuno ch') || 
+             selectedConcepto?.pago_descripcion?.toLowerCase().includes('desayuno gde')) && 
+            (currentHour > 9 || (currentHour === 9 && currentMinutes > 0))) {
+          setShowTimeRestrictionModal(true)
+          setTimeRestrictionMessage('No se puede asignar la fecha de hoy después de las 9:00 AM')
+          return
+        }
+        
+        // Restricción 12:00 PM para Comida
+        if (selectedConcepto?.pago_descripcion?.toLowerCase().includes('comida') && 
+            (currentHour > 12 || (currentHour === 12 && currentMinutes > 0))) {
+          setShowTimeRestrictionModal(true)
+          setTimeRestrictionMessage('No se puede asignar la fecha de hoy después de las 12:00 PM')
+          return
+        }
       }
     }
     
@@ -590,16 +717,12 @@ export default function AsignarFechasPage() {
                 <button
                   onClick={() => handleCancelarOrden()}
                   className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors shadow-lg ${
-                    conceptosPagados.length > 0 && conceptosPagados.every(item => item.pago_estatus === 1)
+                    conceptosPagados.length === 0
                       ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
                       : 'bg-red-500 text-white hover:bg-red-600'
                   }`}
-                  title={
-                    conceptosPagados.length > 0 && conceptosPagados.every(item => item.pago_estatus === 1)
-                      ? 'No se puede cancelar: orden completamente pagada'
-                      : 'Cancelar toda la orden'
-                  }
-                  disabled={conceptosPagados.length > 0 && conceptosPagados.every(item => item.pago_estatus === 1)}
+                  title="Cancelar toda la orden"
+                  disabled={conceptosPagados.length === 0}
                 >
                   <FaTrash className="text-sm" />
                   <span className="hidden sm:inline">Cancelar Orden</span>
@@ -651,96 +774,149 @@ export default function AsignarFechasPage() {
               </button>
             </div>
           ) : (
-            <div className="space-y-4">
-              {conceptosPagados.map((concepto, index) => (
-                <div
-                  key={concepto.id}
-                  className={`flex items-center justify-between rounded-lg p-4 border transition-all duration-200 ${
-                    concepto.pago_estatus === 1 
-                      ? 'bg-gradient-to-r from-green-50 to-blue-50 border-green-200 hover:shadow-md' 
-                      : 'bg-gradient-to-r from-yellow-50 to-orange-50 border-yellow-200 hover:shadow-md'
-                  }`}
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-white rounded-lg flex items-center justify-center shadow-sm">
-                      <span className="text-2xl">{getProductEmoji(concepto.pago_descripcion)}</span>
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h3 className="font-semibold text-gray-800">{concepto.pago_descripcion}</h3>
-                      </div>
-                      <div className="flex gap-4 text-sm text-gray-600">
-                        <span>Cantidad: {concepto.pago_cantidad}</span>
-                        <span>Precio: ${concepto.pago_costo.toFixed(2)}</span>
-                        <span>Total: ${(concepto.pago_costo * concepto.pago_cantidad).toFixed(2)}</span>
-                      </div>
-                      <p className={`font-medium text-sm ${
-                        concepto.pago_estatus === 1 ? 'text-green-600' : 'text-yellow-600'
-                      }`}>
-                        {concepto.pago_fecha ? (
-                          `Fecha programada: ${concepto.pago_fecha}`
-                        ) : (
-                          <span className="text-red-600 font-semibold">⚠️ Sin fecha asignada</span>
-                        )}
-                      </p>
-                      {isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus) && (
-                        <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded-lg">
-                          <div className="flex items-center gap-2 text-red-700 text-xs">
-                            <FaExclamationTriangle className="text-red-500" />
-                            <span className="font-medium">
-                              No se puede modificar: servicio pagado del día de hoy después de las 9:00 AM.
-                            </span>
+            <div className="space-y-6">
+              {Object.entries(groupedOrders).map(([orderNumber, orderItems]) => {
+                const totalOrder = orderItems.reduce((sum, item) => sum + (item.pago_costo * item.pago_cantidad), 0)
+                const isOrderPaid = orderItems.every(item => item.pago_estatus === 1)
+                const orderStatus = isOrderPaid ? 'Pagada' : 'Reservada'
+                const orderStatusColor = isOrderPaid ? 'text-green-600' : 'text-yellow-600'
+                const orderStatusBg = isOrderPaid ? 'bg-green-100' : 'bg-yellow-100'
+                const orderStatusBorder = isOrderPaid ? 'border-green-200' : 'border-yellow-200'
+                
+                return (
+                  <div key={orderNumber} className={`border-2 ${orderStatusBorder} rounded-xl overflow-hidden`}>
+                    {/* Header de la Orden */}
+                    <div className={`${orderStatusBg} p-4 border-b ${orderStatusBorder}`}>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                          <div className="flex items-center gap-2">
+                            <span className="text-lg">📋</span>
+                            <div>
+                              <h3 className="font-bold text-gray-800">Orden: {orderNumber}</h3>
+                              <p className={`text-sm font-medium ${orderStatusColor}`}>
+                                Estatus: {orderStatus}
+                              </p>
+                            </div>
                           </div>
                         </div>
-                      )}
+                        <div className="flex items-center gap-4">
+                          <div className="text-right">
+                            <div className="text-2xl font-bold text-gray-800">${totalOrder.toFixed(2)}</div>
+                            <div className="text-sm text-gray-600">{orderItems.length} servicios</div>
+                          </div>
+                          
+                          {/* Botón Cancelar Orden Completa */}
+                          <button
+                            onClick={() => openCancelOrderModal(orderItems, orderNumber, totalOrder)}
+                            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors shadow-lg ${
+                              orderItems.some(item => isPaidTodayLocked(item.pago_fecha, item.pago_estatus, item.pago_descripcion))
+                                ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
+                                : 'bg-red-500 text-white hover:bg-red-600'
+                            }`}
+                            title={
+                              orderItems.some(item => isPaidTodayLocked(item.pago_fecha, item.pago_estatus, item.pago_descripcion))
+                                ? 'No se puede cancelar: algunos servicios están bloqueados por horario'
+                                : 'Cancelar toda la orden'
+                            }
+                            disabled={orderItems.some(item => isPaidTodayLocked(item.pago_fecha, item.pago_estatus, item.pago_descripcion))}
+                          >
+                            <FaTrash className="text-sm" />
+                            <span className="hidden sm:inline">Cancelar Orden</span>
+                            <span className="sm:hidden">Cancelar</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* Servicios de la Orden */}
+                    <div className="bg-white">
+                                            {orderItems.map((concepto, index) => (
+                        <div
+                          key={concepto.id}
+                          className={`flex items-center justify-between p-4 border-b border-gray-100 transition-all duration-200 hover:bg-gray-50 ${
+                            index === orderItems.length - 1 ? 'border-b-0' : ''
+                          }`}
+                        >
+                          <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 bg-white rounded-lg flex items-center justify-center shadow-sm border border-gray-200">
+                              <span className="text-2xl">{getProductEmoji(concepto.pago_descripcion)}</span>
+                            </div>
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <h3 className="font-semibold text-gray-800">{concepto.pago_descripcion}</h3>
+                              </div>
+                              <div className="flex gap-4 text-sm text-gray-600">
+                                <span>Cantidad: {concepto.pago_cantidad}</span>
+                                <span>Precio: ${concepto.pago_costo.toFixed(2)}</span>
+                                <span>Total: ${(concepto.pago_costo * concepto.pago_cantidad).toFixed(2)}</span>
+                              </div>
+                              <p className={`font-medium text-sm ${
+                                concepto.pago_estatus === 1 ? 'text-green-600' : 'text-yellow-600'
+                              }`}>
+                                {concepto.pago_fecha ? (
+                                  `Fecha programada: ${concepto.pago_fecha}`
+                                ) : (
+                                  <span className="text-red-600 font-semibold">⚠️ Sin fecha asignada</span>
+                                )}
+                              </p>
+                              {isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus, concepto.pago_descripcion) && (
+                                <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded-lg">
+                                  <div className="flex items-center gap-2 text-red-700 text-xs">
+                                    <FaExclamationTriangle className="text-red-500" />
+                                    <span className="font-medium">
+                                      No se puede modificar: servicio pagado del día de hoy después de las 9:00 AM.
+                                    </span>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => openDateModal(concepto)}
+                              className={`flex items-center gap-2 px-3 py-2 rounded-lg font-medium text-sm transition-colors ${
+                                isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus, concepto.pago_descripcion)
+                                  ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
+                                  : 'bg-purple-500 text-white hover:bg-purple-600'
+                              }`}
+                              title={
+                                isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus, concepto.pago_descripcion)
+                                  ? 'No disponible: servicio pagado del día de hoy después de las 9:00 AM'
+                                  : 'Cambiar fecha del servicio'
+                              }
+                              disabled={isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus, concepto.pago_descripcion)}
+                            >
+                              <FaCalendarAlt className="text-sm" />
+                              <span className="hidden sm:inline">Cambiar Fecha</span>
+                              <span className="sm:hidden">Fecha</span>
+                            </button>
+                            
+                            {/* Botón Cancelar Individual */}
+                            <button
+                              onClick={() => openCancelModal(concepto)}
+                              className={`flex items-center gap-2 px-3 py-2 rounded-lg font-medium text-sm transition-colors ${
+                                isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus, concepto.pago_descripcion)
+                                  ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
+                                  : 'bg-red-500 text-white hover:bg-red-600'
+                              }`}
+                              title={
+                                isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus, concepto.pago_descripcion)
+                                  ? 'No disponible: servicio pagado del día de hoy después de las 9:00 AM'
+                                  : 'Cancelar servicio individual'
+                              }
+                              disabled={isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus, concepto.pago_descripcion)}
+                            >
+                              <FaTimes className="text-sm" />
+                              <span className="hidden sm:inline">Cancelar</span>
+                              <span className="sm:hidden">Cancelar</span>
+                            </button>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => openDateModal(concepto)}
-                      className={`flex items-center gap-2 px-3 py-2 rounded-lg font-medium text-sm transition-colors ${
-                        isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus)
-                          ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
-                          : 'bg-purple-500 text-white hover:bg-purple-600'
-                      }`}
-                      title={
-                        isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus)
-                          ? 'No disponible: servicio pagado del día de hoy después de las 9:00 AM'
-                          : 'Cambiar fecha del servicio'
-                      }
-                      disabled={isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus)}
-                    >
-                      <FaCalendarAlt className="text-sm" />
-                      <span className="hidden sm:inline">Cambiar Fecha</span>
-                      <span className="sm:hidden">Fecha</span>
-                    </button>
-                    
-                    {/* Botón Cancelar Individual */}
-                    <button
-                      onClick={() => openCancelModal(concepto)}
-                      className={`flex items-center gap-2 px-3 py-2 rounded-lg font-medium text-sm transition-colors ${
-                        conceptosPagados.every(item => item.pago_estatus === 1) || isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus)
-                          ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
-                          : 'bg-red-500 text-white hover:bg-red-600'
-                      }`}
-                      title={
-                        conceptosPagados.every(item => item.pago_estatus === 1)
-                          ? 'No se puede cancelar: orden completamente pagada'
-                          : isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus)
-                          ? 'No disponible: servicio pagado del día de hoy después de las 9:00 AM'
-                          : 'Cancelar servicio individual'
-                      }
-                      disabled={conceptosPagados.every(item => item.pago_estatus === 1) || isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus)}
-                    >
-                      <FaTrash className="text-sm" />
-                      <span className="hidden sm:inline">Cancelar</span>
-                      <span className="sm:hidden">Cancelar</span>
-                    </button>
-                  </div>
-                </div>
-              ))}
-              
-
+                )
+              })}
             </div>
           )}
         </div>

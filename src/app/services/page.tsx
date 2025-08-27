@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import Image from 'next/image'
 import { FaSignOutAlt, FaUsers, FaCog, FaChartLine, FaLock, FaLightbulb, FaStar, FaGem, FaEnvelope, FaBan, FaFileInvoice, FaIdCard, FaBars, FaTimes, FaArrowLeft, FaCreditCard, FaExclamationTriangle, FaDollarSign, FaClock } from 'react-icons/fa'
-import { getTotalOrdenesPagadas, getAdeudosOrdenActual } from '@/lib/supabase'
+import { getTotalOrdenesPagadas, getAdeudosOrdenActual, getSaldoAlumno } from '@/lib/supabase'
 
 export default function ServicesPage() {
   const { user, logout, isLoading } = useAuth()
@@ -13,6 +13,7 @@ export default function ServicesPage() {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [totalOrdenesPagadas, setTotalOrdenesPagadas] = useState(0)
   const [adeudosOrdenActual, setAdeudosOrdenActual] = useState(0)
+  const [saldoAlumno, setSaldoAlumno] = useState(0)
   const [isLoadingData, setIsLoadingData] = useState(true)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [autoUpdateInterval, setAutoUpdateInterval] = useState<NodeJS.Timeout | null>(null)
@@ -61,9 +62,10 @@ export default function ServicesPage() {
       setIsLoadingData(true)
       
       // Cargar datos financieros reales desde Supabase
-      const [saldoResult, adeudosResult] = await Promise.all([
+      const [saldoResult, adeudosResult, saldoAlumnoResult] = await Promise.all([
         getTotalOrdenesPagadas(user.alumno_ref),
-        getAdeudosOrdenActual(user.alumno_ref)
+        getAdeudosOrdenActual(user.alumno_ref),
+        getSaldoAlumno(user.alumno_ref)
       ])
       
       if (saldoResult.success && saldoResult.total !== undefined) {
@@ -78,6 +80,16 @@ export default function ServicesPage() {
       } else {
         console.error('Error obteniendo adeudos de la orden actual:', adeudosResult.error)
         setAdeudosOrdenActual(0)
+      }
+      
+      console.log('🔍 DEBUG loadFinancialData - saldoAlumnoResult:', saldoAlumnoResult)
+      
+      if (saldoAlumnoResult.saldo !== undefined) {
+        console.log(`✅ Saldo del alumno establecido: $${saldoAlumnoResult.saldo}`)
+        setSaldoAlumno(saldoAlumnoResult.saldo)
+      } else {
+        console.error('❌ Error obteniendo saldo del alumno:', saldoAlumnoResult.error)
+        setSaldoAlumno(0)
       }
       
       // Actualizar timestamp de última actualización
@@ -308,9 +320,9 @@ export default function ServicesPage() {
         <div className="mb-4 sm:mb-6 animate-fadeIn">
           
           {/* Financial Information Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-3xl mx-auto">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-w-5xl mx-auto">
             {/* Auto-update Indicator */}
-            <div className="md:col-span-2 mb-1">
+            <div className="md:col-span-2 lg:col-span-3 mb-1">
               <div className="text-center">
                 <div className="flex items-center justify-center gap-4 text-blue-200 text-sm">
                   <div className="flex items-center gap-2">
@@ -405,6 +417,40 @@ export default function ServicesPage() {
                 <div className="flex items-center gap-2 text-orange-100 text-xs">
                   <FaClock className="text-orange-200" />
                   <span>Lo que debe de la orden actual</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Saldo del Alumno */}
+            <div className="bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl p-4 shadow-lg border border-purple-400/30 backdrop-blur-sm transform hover:scale-105 transition-all duration-300">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center">
+                    <FaGem className="text-white text-lg" />
+                  </div>
+                  <div>
+                    <h3 className="text-white font-bold text-base">Saldo</h3>
+                    <p className="text-purple-100 text-xs">Disponible</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  {isLoadingData ? (
+                    <div className="flex flex-col items-end gap-1">
+                      <div className="w-16 h-6 bg-white/20 rounded animate-pulse"></div>
+                      <div className="w-10 h-3 bg-white/20 rounded animate-pulse"></div>
+                    </div>
+                  ) : (
+                    <div className="text-white">
+                      <div className="text-2xl font-bold">${saldoAlumno.toFixed(2)}</div>
+                      <div className="text-purple-100 text-xs">MXN</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="mt-3 pt-3 border-t border-white/20">
+                <div className="flex items-center gap-2 text-purple-100 text-xs">
+                  <FaDollarSign className="text-purple-200" />
+                  <span>Saldo disponible en cuenta</span>
                 </div>
               </div>
             </div>
