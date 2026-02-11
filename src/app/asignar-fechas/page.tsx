@@ -3,9 +3,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
-import { FaArrowLeft, FaCalendarAlt, FaTimes, FaCheckCircle, FaExclamationTriangle, FaTrash, FaClock, FaCreditCard } from 'react-icons/fa'
+import { FaArrowLeft, FaCalendarAlt, FaTimes, FaCheckCircle, FaExclamationTriangle, FaTrash, FaClock, FaCreditCard, FaEdit, FaSearch } from 'react-icons/fa'
 import { useAuth } from '@/contexts/AuthContext'
-import { updateConceptoFecha, deleteConceptoPagado, getAllPagosVigentes, getHistorialCompleto, PagoDesayuno } from '@/lib/supabase'
+import { updateConceptoFecha, deleteConceptoPagado, getAllPagosVigentes, getHistorialCompleto, PagoDesayuno, getConceptosDesayunos, updateConceptoService } from '@/lib/supabase'
 
 export default function AsignarFechasPage() {
   const { user, isLoading } = useAuth()
@@ -33,6 +33,12 @@ export default function AsignarFechasPage() {
   const [showOrderDetailModal, setShowOrderDetailModal] = useState(false)
   const [showTimeRestrictionModal, setShowTimeRestrictionModal] = useState(false)
   const [timeRestrictionMessage, setTimeRestrictionMessage] = useState('')
+  const [showModifyModal, setShowModifyModal] = useState(false)
+  const [availableServices, setAvailableServices] = useState<Array<{id: number, desayuno_nombre: string, desayuno_abreviatura: string, costo: number}>>([])
+  const [searchTerm, setSearchTerm] = useState('')
+  const [filteredServices, setFilteredServices] = useState<Array<{id: number, desayuno_nombre: string, desayuno_abreviatura: string, costo: number}>>([])
+  const [selectedNewService, setSelectedNewService] = useState<{id: number, desayuno_nombre: string, desayuno_abreviatura: string, costo: number} | null>(null)
+  const [isModifying, setIsModifying] = useState(false)
 
   const loadConceptosPagados = useCallback(async () => {
     if (!user) return
@@ -96,6 +102,100 @@ export default function AsignarFechasPage() {
         setShowCancelOrderModal(true)
   }
 
+  const openModifyModal = async (concepto: PagoDesayuno) => {
+    console.log('🔍 DEBUG openModifyModal:')
+    console.log('  - Concepto:', concepto.pago_descripcion)
+    console.log('  - Fecha:', concepto.pago_fecha)
+    console.log('  - Estatus:', concepto.pago_estatus)
+    console.log('  - isPaidTodayLocked resultado:', isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus, concepto.pago_descripcion))
+    
+    setSelectedConcepto(concepto)
+    setShowModifyModal(true)
+    
+    // Cargar servicios disponibles
+    try {
+      const result = await getConceptosDesayunos()
+      if (result.success && result.data) {
+        // Filtrar el servicio actual para no mostrarlo como opción
+        const filtered = result.data.filter(service => 
+          service.desayuno_nombre !== concepto.pago_descripcion
+        )
+        setAvailableServices(filtered)
+        setFilteredServices(filtered)
+        console.log('  - Servicios disponibles cargados:', filtered.length)
+      }
+    } catch (error) {
+      console.error('Error cargando servicios disponibles:', error)
+    }
+  }
+
+  const handleServiceModification = async () => {
+    if (!selectedConcepto || !selectedNewService || !user) return
+
+    console.log('🔍 DEBUG handleServiceModification:')
+    console.log('  - Servicio actual:', selectedConcepto.pago_descripcion)
+    console.log('  - Nuevo servicio:', selectedNewService.desayuno_nombre)
+    console.log('  - Costo actual:', selectedConcepto.pago_costo)
+    console.log('  - Costo nuevo:', selectedNewService.costo)
+    console.log('  - Diferencia:', selectedNewService.costo - selectedConcepto.pago_costo)
+
+    setIsModifying(true)
+    try {
+      // Llamar a la función de actualización del servicio
+      const result = await updateConceptoService(
+        selectedConcepto.id!,
+        selectedNewService.id,
+        selectedNewService.desayuno_nombre,
+        selectedNewService.costo,
+        user.alumno_ref
+      )
+
+      console.log('  - Resultado de updateConceptoService:', result)
+
+      if (result.success) {
+        setShowModifyModal(false)
+        setSelectedNewService(null)
+        setSearchTerm('')
+        
+        // Recargar los datos
+        await loadConceptosPagados()
+        
+        // Mostrar mensaje de éxito con detalles de la transacción
+        let message = 'Servicio modificado exitosamente'
+        if (result.montoAbonado && result.montoAbonado > 0) {
+          message += `. Se abonó $${result.montoAbonado.toFixed(2)} MXN a tu saldo.`
+        } else if (result.montoCobrado && result.montoCobrado > 0) {
+          message += `. Se descontó $${result.montoCobrado.toFixed(2)} MXN de tu saldo.`
+        }
+        
+        setSuccessMessage(message)
+        setShowSuccessModal(true)
+      } else {
+        console.log('  - ❌ Error en la modificación:', result.error)
+        setRestrictionMessage(result.error || 'Error al modificar el servicio')
+        setShowRestrictionModal(true)
+      }
+    } catch (error) {
+      console.error('Error modificando servicio:', error)
+      setRestrictionMessage('Error inesperado al modificar el servicio')
+      setShowRestrictionModal(true)
+    } finally {
+      setIsModifying(false)
+    }
+  }
+
+  // Filtrar servicios basado en el término de búsqueda
+  useEffect(() => {
+    if (searchTerm.trim() === '') {
+      setFilteredServices(availableServices)
+    } else {
+      const filtered = availableServices.filter(service =>
+        service.desayuno_nombre.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+      setFilteredServices(filtered)
+    }
+  }, [searchTerm, availableServices])
+
   const openHistorialModal = async () => {
     if (!user) return
     
@@ -152,12 +252,12 @@ export default function AsignarFechasPage() {
       const result = await deleteConceptoPagado(selectedConcepto.id, user.alumno_ref)
       
       if (result.success) {
-        // Actualizar el estado local removiendo el elemento
-        setConceptosPagados(prev => prev.filter(item => item.id !== selectedConcepto.id))
-        
         // Cerrar modal
         setShowCancelModal(false)
         setSelectedConcepto(null)
+        
+        // Recargar datos de la base de datos para sincronizar la vista
+        await loadConceptosPagados()
         
         // Mostrar mensaje de éxito con monto abonado si aplica
         if (result.montoAbonado && result.montoAbonado > 0) {
@@ -223,9 +323,11 @@ export default function AsignarFechasPage() {
           return total + (result.montoAbonado || 0)
         }, 0)
         
-        // Limpiar toda la lista
-        setConceptosPagados([])
+        // Cerrar modal
         setShowCancelOrderModal(false)
+        
+        // Recargar datos de la base de datos para sincronizar la vista
+        await loadConceptosPagados()
         
         // Mostrar mensaje de éxito con total abonado si aplica
         if (totalAbonado > 0) {
@@ -381,7 +483,8 @@ export default function AsignarFechasPage() {
       }
     }
     
-    // Para servicios de días futuros, siempre permitir cancelación (se abonará saldo)
+    // Para servicios de días futuros, SIEMPRE permitir modificación
+    // No hay restricciones de tiempo para fechas futuras
     return false
   }
 
@@ -554,7 +657,7 @@ export default function AsignarFechasPage() {
                     className="w-6 h-6 sm:w-8 sm:h-8 object-cover rounded-md"
                   />
                 </div>
-                <h1 className="text-lg sm:text-xl font-bold text-gray-800">Asignar Fechas y Cancelaciones</h1>
+                <h1 className="text-lg sm:text-xl font-bold text-gray-800">Asignar Fechas, Cancelaciones y Modificaciones</h1>
               </div>
             </div>
             <div className="flex items-center gap-2 sm:justify-end">
@@ -647,22 +750,6 @@ export default function AsignarFechasPage() {
               
               {/* Botones de acción y contador */}
               <div className="flex items-center gap-3">
-                {/* Botón Cancelar Orden */}
-                <button
-                  onClick={() => handleCancelarOrden()}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors shadow-lg ${
-                    conceptosPagados.length === 0
-                      ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
-                      : 'bg-red-500 text-white hover:bg-red-600'
-                  }`}
-                  title="Cancelar toda la orden"
-                  disabled={conceptosPagados.length === 0}
-                >
-                  <FaTrash className="text-sm" />
-                  <span className="hidden sm:inline">Cancelar Orden</span>
-                  <span className="sm:hidden">Cancelar</span>
-                </button>
-                
                 {/* Botón Historial */}
                 <button
                   onClick={() => openHistorialModal()}
@@ -680,6 +767,11 @@ export default function AsignarFechasPage() {
                     <span className="text-sm">🍽️</span>
                     <span className="text-sm font-medium">Total:</span>
                     <span className="text-xl font-bold">{conceptosPagados.length}</span>
+                    {conceptosPagados.some(item => item.pago_estatus === 3) && (
+                      <span className="text-xs bg-red-500 text-white px-2 py-1 rounded-full ml-2">
+                        🚨 EMG
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -712,10 +804,26 @@ export default function AsignarFechasPage() {
               {Object.entries(groupedOrders).map(([orderNumber, orderItems]) => {
                 const totalOrder = orderItems.reduce((sum, item) => sum + (item.pago_costo * item.pago_cantidad), 0)
                 const isOrderPaid = orderItems.every(item => item.pago_estatus === 1)
-                const orderStatus = isOrderPaid ? 'Pagada' : 'Reservada'
-                const orderStatusColor = isOrderPaid ? 'text-green-600' : 'text-yellow-600'
-                const orderStatusBg = isOrderPaid ? 'bg-green-100' : 'bg-yellow-100'
-                const orderStatusBorder = isOrderPaid ? 'border-green-200' : 'border-yellow-200'
+                const isEmergencyOrder = orderItems.some(item => item.pago_estatus === 3)
+                
+                let orderStatus, orderStatusColor, orderStatusBg, orderStatusBorder
+                
+                if (isEmergencyOrder) {
+                  orderStatus = 'Emergencia'
+                  orderStatusColor = 'text-red-600'
+                  orderStatusBg = 'bg-red-100'
+                  orderStatusBorder = 'border-red-200'
+                } else if (isOrderPaid) {
+                  orderStatus = 'Pagada'
+                  orderStatusColor = 'text-green-600'
+                  orderStatusBg = 'bg-green-100'
+                  orderStatusBorder = 'border-green-200'
+                } else {
+                  orderStatus = 'Reservada'
+                  orderStatusColor = 'text-yellow-600'
+                  orderStatusBg = 'bg-yellow-100'
+                  orderStatusBorder = 'border-yellow-200'
+                }
                 
                 return (
                   <div key={orderNumber} className={`border-2 ${orderStatusBorder} rounded-xl overflow-hidden`}>
@@ -724,9 +832,18 @@ export default function AsignarFechasPage() {
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-4">
                           <div className="flex items-center gap-2">
-                            <span className="text-lg">📋</span>
+                            <span className="text-lg">
+                              {isEmergencyOrder ? '🚨' : '📋'}
+                            </span>
                             <div>
-                              <h3 className="font-bold text-gray-800">Orden: {orderNumber}</h3>
+                              <h3 className="font-bold text-gray-800">
+                                Orden: {orderNumber}
+                                {isEmergencyOrder && (
+                                  <span className="ml-2 text-xs bg-red-500 text-white px-2 py-1 rounded-full">
+                                    EMERGENCIA
+                                  </span>
+                                )}
+                              </h3>
                               <p className={`text-sm font-medium ${orderStatusColor}`}>
                                 Estatus: {orderStatus}
                               </p>
@@ -743,16 +860,18 @@ export default function AsignarFechasPage() {
                           <button
                             onClick={() => openCancelOrderModal(orderItems, orderNumber)}
                             className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors shadow-lg ${
-                              orderItems.some(item => isPaidTodayLocked(item.pago_fecha, item.pago_estatus, item.pago_descripcion))
+                              orderItems.some(item => isPaidTodayLocked(item.pago_fecha, item.pago_estatus, item.pago_descripcion)) || isEmergencyOrder
                                 ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
                                 : 'bg-red-500 text-white hover:bg-red-600'
                             }`}
                             title={
-                              orderItems.some(item => isPaidTodayLocked(item.pago_fecha, item.pago_estatus, item.pago_descripcion))
-                                ? 'No se puede cancelar: algunos servicios están bloqueados por horario'
-                                : 'Cancelar toda la orden'
+                              isEmergencyOrder
+                                ? 'No se puede cancelar: las órdenes de emergencia no se pueden cancelar'
+                                : orderItems.some(item => isPaidTodayLocked(item.pago_fecha, item.pago_estatus, item.pago_descripcion))
+                                  ? 'No se puede cancelar: algunos servicios están bloqueados por horario'
+                                  : 'Cancelar toda la orden'
                             }
-                            disabled={orderItems.some(item => isPaidTodayLocked(item.pago_fecha, item.pago_estatus, item.pago_descripcion))}
+                            disabled={orderItems.some(item => isPaidTodayLocked(item.pago_fecha, item.pago_estatus, item.pago_descripcion)) || isEmergencyOrder}
                           >
                             <FaTrash className="text-sm" />
                             <span className="hidden sm:inline">Cancelar Orden</span>
@@ -764,6 +883,21 @@ export default function AsignarFechasPage() {
                     
                     {/* Servicios de la Orden */}
                     <div className="bg-white">
+                      {/* Mensaje de emergencia si aplica */}
+                      {isEmergencyOrder && (
+                        <div className="bg-red-50 border-l-4 border-red-400 p-4">
+                          <div className="flex items-start gap-3">
+                            <FaExclamationTriangle className="text-red-500 text-lg mt-0.5 flex-shrink-0" />
+                            <div>
+                              <h4 className="font-semibold text-red-800 mb-1">🚨 Orden de Emergencia</h4>
+                              <p className="text-red-700 text-sm">
+                                Esta orden fue procesada como servicio de emergencia. Los servicios pueden ser entregados sin pago inmediato.
+                                El total debe pagarse en caja: <strong>${totalOrder.toFixed(2)} MXN</strong>
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                                             {orderItems.map((concepto, index) => (
                         <div
                           key={concepto.id}
@@ -777,7 +911,14 @@ export default function AsignarFechasPage() {
                             </div>
                             <div className="flex-1">
                               <div className="flex items-center gap-2 mb-1">
-                                <h3 className="font-semibold text-gray-800">{concepto.pago_descripcion}</h3>
+                                <h3 className="font-semibold text-gray-800">
+                                  {concepto.pago_descripcion}
+                                  {concepto.pago_estatus === 3 && (
+                                    <span className="ml-2 text-xs bg-red-500 text-white px-2 py-1 rounded-full">
+                                      EMERGENCIA
+                                    </span>
+                                  )}
+                                </h3>
                               </div>
                               <div className="flex gap-4 text-sm text-gray-600">
                                 <span>Cantidad: {concepto.pago_cantidad}</span>
@@ -803,42 +944,78 @@ export default function AsignarFechasPage() {
                                   </div>
                                 </div>
                               )}
+                              {concepto.pago_estatus === 3 && (
+                                <div className="mt-2 p-2 bg-orange-50 border border-orange-200 rounded-lg">
+                                  <div className="flex items-center gap-2 text-orange-700 text-xs">
+                                    <FaExclamationTriangle className="text-orange-500" />
+                                    <span className="font-medium">
+                                      Servicio de emergencia: no se puede modificar, cancelar o cambiar fecha.
+                                    </span>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           </div>
                           <div className="flex gap-2">
                             <button
                               onClick={() => openDateModal(concepto)}
                               className={`flex items-center gap-2 px-3 py-2 rounded-lg font-medium text-sm transition-colors ${
-                                isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus, concepto.pago_descripcion)
+                                isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus, concepto.pago_descripcion) || concepto.pago_estatus === 3
                                   ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
                                   : 'bg-purple-500 text-white hover:bg-purple-600'
                               }`}
                               title={
-                                isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus, concepto.pago_descripcion)
-                                  ? 'No disponible: servicio pagado del día de hoy después de las 9:00 AM'
-                                  : 'Cambiar fecha del servicio'
+                                concepto.pago_estatus === 3
+                                  ? 'No disponible: servicios de emergencia no se pueden modificar'
+                                  : isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus, concepto.pago_descripcion)
+                                    ? 'No disponible: servicio pagado del día de hoy después de las 9:00 AM'
+                                    : 'Cambiar fecha del servicio'
                               }
-                              disabled={isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus, concepto.pago_descripcion)}
+                              disabled={isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus, concepto.pago_descripcion) || concepto.pago_estatus === 3}
                             >
                               <FaCalendarAlt className="text-sm" />
                               <span className="hidden sm:inline">Cambiar Fecha</span>
                               <span className="sm:hidden">Fecha</span>
                             </button>
                             
+                            {/* Botón Modificar Servicio */}
+                            <button
+                              onClick={() => openModifyModal(concepto)}
+                              className={`flex items-center gap-2 px-3 py-2 rounded-lg font-medium text-sm transition-colors ${
+                                isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus, concepto.pago_descripcion) || concepto.pago_estatus === 3
+                                  ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
+                                  : 'bg-blue-500 text-white hover:bg-blue-600'
+                              }`}
+                              title={
+                                concepto.pago_estatus === 3
+                                  ? 'No disponible: servicios de emergencia no se pueden modificar'
+                                  : isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus, concepto.pago_descripcion)
+                                    ? 'No disponible: servicio pagado del día de hoy después de las 9:00 AM'
+                                    : 'Modificar servicio por otro'
+                              }
+                              disabled={isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus, concepto.pago_descripcion) || concepto.pago_estatus === 3}
+                            >
+                              <FaEdit className="text-sm" />
+                              <span className="hidden sm:inline">Modificar</span>
+                              <span className="sm:hidden">Modificar</span>
+                            </button>
+                            
                             {/* Botón Cancelar Individual */}
                             <button
                               onClick={() => openCancelModal(concepto)}
                               className={`flex items-center gap-2 px-3 py-2 rounded-lg font-medium text-sm transition-colors ${
-                                isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus, concepto.pago_descripcion)
+                                isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus, concepto.pago_descripcion) || concepto.pago_estatus === 3
                                   ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
                                   : 'bg-red-500 text-white hover:bg-red-600'
                               }`}
                               title={
-                                isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus, concepto.pago_descripcion)
-                                  ? 'No disponible: servicio pagado del día de hoy después de las 9:00 AM'
-                                  : 'Cancelar servicio individual'
+                                concepto.pago_estatus === 3
+                                  ? 'No disponible: servicios de emergencia no se pueden cancelar'
+                                  : isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus, concepto.pago_descripcion)
+                                    ? 'No disponible: servicio pagado del día de hoy después de las 9:00 AM'
+                                    : 'Cancelar servicio individual'
                               }
-                              disabled={isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus, concepto.pago_descripcion)}
+                              disabled={isPaidTodayLocked(concepto.pago_fecha, concepto.pago_estatus, concepto.pago_descripcion) || concepto.pago_estatus === 3}
                             >
                               <FaTimes className="text-sm" />
                               <span className="hidden sm:inline">Cancelar</span>
@@ -1234,6 +1411,170 @@ export default function AsignarFechasPage() {
               >
                 Entendido
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Restricción de Tiempo para Asignación de Fecha */}
+      {showTimeRestrictionModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[90] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 text-center">
+              <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <span className="text-orange-600 text-2xl">⏰</span>
+              </div>
+              <h3 className="text-lg font-bold text-orange-600 mb-4">Restricción de Tiempo</h3>
+              <p className="text-gray-800 text-sm mb-6">{timeRestrictionMessage}</p>
+              <button
+                onClick={() => setShowTimeRestrictionModal(false)}
+                className="w-full px-6 py-3 bg-orange-500 text-white rounded-lg font-medium hover:bg-orange-600 transition-colors"
+              >
+                Entendido
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Modificación de Servicio */}
+      {showModifyModal && selectedConcepto && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[90] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-6xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              {/* Header */}
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+                    <span className="text-blue-600 text-xl">✏️</span>
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold text-gray-800">Modificar Servicio</h2>
+                    <p className="text-gray-600 text-sm">Cambiar &quot;{selectedConcepto.pago_descripcion}&quot; por otro servicio</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowModifyModal(false)}
+                  className="w-8 h-8 bg-gray-100 hover:bg-gray-200 rounded-full flex items-center justify-center transition-colors"
+                >
+                  <FaTimes className="text-gray-600 text-sm" />
+                </button>
+              </div>
+
+              {/* Información del servicio actual */}
+              <div className="bg-blue-50 rounded-lg p-4 mb-6">
+                <h3 className="font-semibold text-blue-800 mb-2 text-lg">Servicio Actual:</h3>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl">{getProductEmoji(selectedConcepto.pago_descripcion)}</span>
+                    <div>
+                      <p className="font-medium text-blue-800 text-lg">{selectedConcepto.pago_descripcion}</p>
+                      <p className="text-blue-600">Precio: ${selectedConcepto.pago_costo.toFixed(2)} MXN</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-blue-600">Fecha: {selectedConcepto.pago_fecha || 'Sin fecha'}</p>
+                    <p className="text-blue-600">Estatus: {selectedConcepto.pago_estatus === 1 ? 'Pagado' : 'Reservado'}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Búsqueda de servicios */}
+              <div className="mb-6">
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Buscar servicios..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-800 text-lg"
+                  />
+                  <FaSearch className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 text-xl" />
+                </div>
+              </div>
+
+              {/* Lista de servicios disponibles - Estilo de tarjetitas */}
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-6">
+                {filteredServices.length === 0 ? (
+                  <div className="col-span-full text-center py-8">
+                    <p className="text-gray-500">No se encontraron servicios</p>
+                  </div>
+                ) : (
+                  filteredServices.map((service) => {
+                    const costDifference = service.costo - selectedConcepto.pago_costo
+                    const isMoreExpensive = costDifference > 0
+                    const isCheaper = costDifference < 0
+                    
+                    return (
+                      <div
+                        key={service.id}
+                        onClick={() => setSelectedNewService(service)}
+                        className={`border-2 rounded-xl p-4 cursor-pointer transition-all hover:shadow-lg hover:scale-105 ${
+                          selectedNewService?.id === service.id
+                            ? 'border-blue-500 bg-blue-50 shadow-lg scale-105'
+                            : 'border-gray-200 hover:border-blue-300 bg-white'
+                        }`}
+                      >
+                        <div className="text-center">
+                          {/* Icono del servicio */}
+                          <div className="text-4xl mb-3">
+                            {getProductEmoji(service.desayuno_nombre)}
+                          </div>
+                          
+                          {/* Nombre del servicio */}
+                          <h4 className="font-bold text-gray-800 mb-3 text-sm leading-tight">
+                            {service.desayuno_nombre}
+                          </h4>
+                          
+                          {/* Precio */}
+                          <p className="text-xl font-bold text-green-600 mb-3">
+                            ${service.costo?.toFixed(2)} MXN
+                          </p>
+                          
+                          {/* Diferencia de precio */}
+                          {costDifference !== 0 && (
+                            <div className={`text-xs font-semibold px-2 py-1 rounded-full ${
+                              isMoreExpensive 
+                                ? 'bg-red-100 text-red-700 border border-red-200' 
+                                : 'bg-green-100 text-green-700 border border-green-200'
+                            }`}>
+                              {isMoreExpensive ? '▲' : '▼'} ${Math.abs(costDifference).toFixed(2)} MXN
+                            </div>
+                          )}
+                          
+                          {/* Indicador de selección */}
+                          {selectedNewService?.id === service.id && (
+                            <div className="mt-3 text-blue-600 text-sm font-semibold bg-blue-100 px-2 py-1 rounded-full">
+                              ✓ Seleccionado
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+
+              {/* Botones de acción */}
+              <div className="flex gap-4 justify-end">
+                <button
+                  onClick={() => setShowModifyModal(false)}
+                  className="px-6 py-3 text-gray-600 border-2 border-gray-300 rounded-lg hover:bg-gray-50 font-medium text-lg transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleServiceModification}
+                  disabled={!selectedNewService || isModifying}
+                  className={`px-8 py-3 rounded-lg font-bold text-lg transition-all ${
+                    selectedNewService && !isModifying
+                      ? 'bg-blue-600 text-white hover:bg-blue-700 hover:shadow-lg'
+                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  }`}
+                >
+                  {isModifying ? 'Modificando...' : 'Confirmar Modificación'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

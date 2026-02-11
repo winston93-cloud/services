@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useState, useCallback } from 'react'
 import Image from 'next/image'
 import { FaSignOutAlt, FaUsers, FaChartLine, FaLightbulb, FaStar, FaGem, FaEnvelope, FaFileInvoice, FaIdCard, FaBars, FaTimes, FaArrowLeft, FaCreditCard, FaExclamationTriangle, FaDollarSign, FaClock } from 'react-icons/fa'
-import { getTotalOrdenesPagadas, getAdeudosOrdenActual, getSaldoAlumno } from '@/lib/supabase'
+import { getTotalOrdenesPagadas, getAdeudosOrdenActual, getSaldoAlumno, getEstanciaMensual } from '@/lib/supabase'
 
 export default function ServicesPage() {
   const { user, logout, isLoading } = useAuth()
@@ -14,6 +14,7 @@ export default function ServicesPage() {
   const [totalOrdenesPagadas, setTotalOrdenesPagadas] = useState(0)
   const [adeudosOrdenActual, setAdeudosOrdenActual] = useState(0)
   const [saldoAlumno, setSaldoAlumno] = useState(0)
+  const [estanciaMensual, setEstanciaMensual] = useState(0)
   const [isLoadingData, setIsLoadingData] = useState(true)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [autoUpdateInterval, setAutoUpdateInterval] = useState<NodeJS.Timeout | null>(null)
@@ -26,10 +27,11 @@ export default function ServicesPage() {
       setIsLoadingData(true)
       
       // Cargar datos financieros reales desde Supabase
-      const [saldoResult, adeudosResult, saldoAlumnoResult] = await Promise.all([
+      const [saldoResult, adeudosResult, saldoAlumnoResult, estanciaMensualResult] = await Promise.all([
         getTotalOrdenesPagadas(user.alumno_ref),
         getAdeudosOrdenActual(user.alumno_ref),
-        getSaldoAlumno(user.alumno_ref)
+        getSaldoAlumno(user.alumno_ref),
+        getEstanciaMensual(user.alumno_ref)
       ])
       
       if (saldoResult.success && saldoResult.total !== undefined) {
@@ -54,6 +56,14 @@ export default function ServicesPage() {
       } else {
         console.error('❌ Error obteniendo saldo del alumno:', saldoAlumnoResult.error)
         setSaldoAlumno(0)
+      }
+      
+      if (estanciaMensualResult.success && estanciaMensualResult.estanciaMensual !== undefined) {
+        console.log(`✅ Estancia mensual establecida: $${estanciaMensualResult.estanciaMensual}`)
+        setEstanciaMensual(estanciaMensualResult.estanciaMensual)
+      } else {
+        console.error('❌ Error obteniendo estancia mensual:', estanciaMensualResult.error)
+        setEstanciaMensual(0)
       }
       
       // Actualizar timestamp de última actualización
@@ -116,15 +126,10 @@ export default function ServicesPage() {
   const menuItems = [
     { emoji: "🍽️", title: "Elegir Servicios", desc: "Reserva de Comida, Desayuno y Estancia" },
     { emoji: "📅", title: "Asignar Fechas y Cancelaciones", desc: "Reservar días de servicios y cancelar" },
-    { emoji: "💰", title: "Saldo a Favor", desc: "Ver montos disponibles" },
-    { emoji: "📊", title: "Pagos Mensuales", desc: "Contratar servicios mensuales" },
+    { emoji: "🚨", title: "Servicio Emergente", desc: "Reservar 1 desayuno, estancia con comida y tarea" },
+    { emoji: "🏠", title: "Pago de Estancia Mensual", desc: "Pago mensual de estancia de 5 o 7 PM" },
     { emoji: "⚠️", title: "Adeudos Pendientes", desc: "Ver adeudos por tardanza" },
     { emoji: "🏫", title: "Pago en Recepción", desc: "Servicios del mismo día" },
-    { emoji: "📈", title: "Corte Diario", desc: "Resumen de pagos del día" },
-    { emoji: "🔐", title: "Función Manual", desc: "Cargar fechas posteriores" },
-    { emoji: "📋", title: "Registrar Adeudos", desc: "Control de horarios de salida" },
-    { emoji: "🏠", title: "Días de Asueto", desc: "Registrar días no hábiles" },
-    { emoji: "💼", title: "Desglose Contable", desc: "Cálculo Ludy y Winston" },
     { emoji: "📤", title: "Exportar Excel", desc: "Reportes en Excel" },
     { emoji: "🔗", title: "Link de Adeudos", desc: "Vinculación con colegiaturas" }
   ]
@@ -150,13 +155,8 @@ export default function ServicesPage() {
   const services = [
     { icon: FaUsers, title: "Elegir Servicios", desc: "Reserva de Comida, Desayuno y Estancia", color: "from-blue-500 to-cyan-500" },
     { icon: FaChartLine, title: "Asignar Fechas y Cancelaciones", desc: "Calendario para reservar días y cancelar", color: "from-purple-500 to-pink-500" },
-    { icon: FaGem, title: "Saldo a Favor", desc: "Consultar montos por devoluciones", color: "from-green-500 to-teal-500" },
-    { icon: FaFileInvoice, title: "Pagos Mensuales", desc: "Contratar servicios por mes completo", color: "from-indigo-500 to-purple-500" },
-    { icon: FaLightbulb, title: "Corte Diario", desc: "Resumen de ingresos del día", color: "from-cyan-500 to-blue-500" },
-    { icon: FaIdCard, title: "Función Manual", desc: "Cargar fechas posteriores (Maestro)", color: "from-teal-500 to-green-500" },
-    { icon: FaEnvelope, title: "Registrar Adeudos", desc: "Control de horarios de salida", color: "from-violet-500 to-purple-500" },
-    { icon: FaFileInvoice, title: "Días de Asueto", desc: "Configurar días no hábiles", color: "from-emerald-500 to-teal-500" },
-    { icon: FaChartLine, title: "Desglose Contable", desc: "Calcular montos Ludy y Winston", color: "from-amber-500 to-yellow-500" }
+    { icon: FaExclamationTriangle, title: "🚨 Servicio Emergente", desc: "Reservar 1 desayuno, estancia con comida y tarea", color: "from-red-500 to-orange-500" },
+    { icon: FaIdCard, title: "Pago de Estancia Mensual", desc: "Pago mensual de estancia de 5 o 7 PM", color: "from-teal-500 to-green-500" }
   ]
 
   return (
@@ -269,6 +269,9 @@ export default function ServicesPage() {
                       router.push('/servicios-internos')
                     } else if (item.title === "Asignar Fechas y Cancelaciones") {
                       router.push('/asignar-fechas')
+                    } else if (item.title === "Pago de Estancia Mensual") {
+                      // Por ahora solo mostrar un alert, pero aquí se puede implementar la navegación
+                      alert(`Estancia Mensual: $${estanciaMensual.toFixed(2)} MXN\n\nEsta funcionalidad estará disponible próximamente.`)
                     } else {
                       console.log(`Navegando a: ${item.title}`)
                     }
@@ -469,6 +472,11 @@ export default function ServicesPage() {
                     router.push('/servicios-internos')
                   } else if (service.title === "Asignar Fechas y Cancelaciones") {
                     router.push('/asignar-fechas')
+                  } else if (service.title === "🚨 Servicio Emergente") {
+                    router.push('/servicio-emergente')
+                  } else if (service.title === "Pago de Estancia Mensual") {
+                    // Por ahora solo mostrar un alert, pero aquí se puede implementar la navegación
+                    alert(`Estancia Mensual: $${estanciaMensual.toFixed(2)} MXN\n\nEsta funcionalidad estará disponible próximamente.`)
                   } else {
                     console.log(`Navegando a: ${service.title}`)
                   }

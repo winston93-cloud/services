@@ -478,7 +478,7 @@ export async function getAllPagosVigentes(alumnoRef: string): Promise<{ success:
       .from('pago_desayunos')
       .select('*')
       .eq('pago_ref', alumnoRef)
-      .in('pago_estatus', [1, 2]) // Estatus 1 (pagado) y 2 (reservado)
+      .in('pago_estatus', [1, 2, 3]) // Estatus 1 (pagado), 2 (reservado) y 3 (emergencia)
       .or(`pago_fecha.gte.${today.toISOString().split('T')[0]},pago_fecha.is.null`) // Fechas de hoy en adelante O fechas NULL
       .order('pago_fecha', { ascending: true, nullsFirst: true }) // NULL primero, luego por fecha
 
@@ -582,6 +582,8 @@ export async function updateConceptoFecha(id: number, nuevaFecha: string, descri
 // Función para eliminar un concepto pagado (cancelar servicio)
 export async function deleteConceptoPagado(id: number, alumnoRef: string): Promise<{ success: boolean; error?: string; montoAbonado?: number }> {
   try {
+    console.log(`🔍 Intentando cancelar concepto ID: ${id}, Alumno: ${alumnoRef}`)
+    
     // Primero obtener los datos del concepto antes de eliminarlo
     const { data: concepto, error: fetchError } = await supabase
       .from('pago_desayunos')
@@ -589,14 +591,25 @@ export async function deleteConceptoPagado(id: number, alumnoRef: string): Promi
       .eq('id', id)
       .single()
 
+    console.log(`📊 Resultado de consulta:`, { concepto, fetchError })
+
     if (fetchError) {
       console.error('Error obteniendo datos del concepto:', fetchError)
-      return { success: false, error: 'Error al obtener datos del concepto' }
+      console.error('Detalles del error:', {
+        code: fetchError.code,
+        message: fetchError.message,
+        details: fetchError.details,
+        hint: fetchError.hint
+      })
+      return { success: false, error: `Error al obtener datos del concepto: ${fetchError.message}` }
     }
 
     if (!concepto) {
-      return { success: false, error: 'Concepto no encontrado' }
+      console.error('❌ Concepto no encontrado en la base de datos')
+      return { success: false, error: 'Concepto no encontrado en la base de datos' }
     }
+
+    console.log(`✅ Concepto encontrado:`, concepto)
 
     // Verificar restricciones de tiempo si es para hoy
     const today = new Date()
@@ -640,14 +653,20 @@ export async function deleteConceptoPagado(id: number, alumnoRef: string): Promi
     }
 
     // Ahora eliminar el concepto
+    console.log(`🗑️ Eliminando concepto ID: ${id}`)
     const { error: deleteError } = await supabase
       .from('pago_desayunos')
       .delete()
       .eq('id', id)
 
     if (deleteError) {
-      console.error('Error en Supabase:', deleteError)
-      return { success: false, error: 'Error al eliminar concepto' }
+      console.error('Error eliminando concepto:', deleteError)
+      console.error('Detalles del error de eliminación:', {
+        code: deleteError.code,
+        message: deleteError.message,
+        details: deleteError.details
+      })
+      return { success: false, error: `Error al eliminar concepto: ${deleteError.message}` }
     }
 
     console.log(`✅ Concepto ${id} cancelado exitosamente. Monto abonado: $${montoAAbonar}`)
@@ -702,12 +721,12 @@ export async function getTotalOrdenesPagadas(alumnoRef: string): Promise<{ succe
 // Función para obtener los adeudos de la orden actual del usuario
 export async function getAdeudosOrdenActual(alumnoRef: string): Promise<{ success: boolean; error?: string; adeudos?: number }> {
   try {
-    // Obtener la orden actual (con estatus 2 - reservada pero no pagada)
+    // Obtener la orden actual (con estatus 2 - reservada pero no pagada, y estatus 3 - emergencia)
     const { data, error } = await supabase
       .from('pago_desayunos')
       .select('pago_costo, pago_cantidad, pago_estatus, pago_orden, pago_fecha')
       .eq('pago_ref', alumnoRef)
-      .eq('pago_estatus', 2) // Solo servicios reservados pero no pagados
+      .in('pago_estatus', [2, 3]) // Servicios reservados (2) y emergencia (3) - ambos requieren pago
       .not('pago_orden', 'is', null) // Asegurar que tenga número de orden
 
     if (error) {
@@ -719,7 +738,7 @@ export async function getAdeudosOrdenActual(alumnoRef: string): Promise<{ succes
       return { success: true, adeudos: 0 }
     }
 
-    // Agrupar por número de orden (debería ser solo una orden)
+    // Agrupar por número de orden (puede haber múltiples órdenes con estatus 2 y 3)
     const ordenes: { [key: string]: number } = {}
     
     data.forEach(item => {
@@ -731,11 +750,10 @@ export async function getAdeudosOrdenActual(alumnoRef: string): Promise<{ succes
       }
     })
     
-    // Tomar la primera orden (debería ser solo una)
-    const numeroOrden = Object.keys(ordenes)[0]
-    const adeudos = ordenes[numeroOrden] || 0
+    // Sumar todos los adeudos de todas las órdenes (estatus 2 y 3)
+    const totalAdeudos = Object.values(ordenes).reduce((total, adeudo) => total + adeudo, 0)
     
-    return { success: true, adeudos: Math.round(adeudos * 100) / 100 }
+    return { success: true, adeudos: Math.round(totalAdeudos * 100) / 100 }
   } catch (error) {
     console.error('Error en getAdeudosOrdenActual:', error)
     return { success: false, error: 'Error de conexión. Intente nuevamente.' }
@@ -779,6 +797,46 @@ export async function getSaldoAlumno(alumnoRef: string): Promise<{ success: bool
   } catch (error) {
     console.error('Error inesperado obteniendo saldo:', error)
     return { success: false, error: 'Error inesperado al obtener el saldo' }
+  }
+}
+
+// Función para obtener el pago de estancia mensual del alumno
+export async function getEstanciaMensual(alumnoRef: string): Promise<{ success: boolean; estanciaMensual?: number; error?: string }> {
+  try {
+    console.log(`🔍 DEBUG getEstanciaMensual: Buscando estancia mensual para alumno_ref: ${alumnoRef}`)
+    
+    // Buscar servicios de estancia mensual (Est. Mes 5 o Est. Mes 7) con estatus 1 (pagado)
+    const { data, error } = await supabase
+      .from('pago_desayunos')
+      .select('pago_costo, pago_cantidad, pago_descripcion')
+      .eq('pago_ref', alumnoRef)
+      .eq('pago_estatus', 1) // Solo servicios pagados
+      .or('pago_descripcion.ilike.%Est. Mes 5%,pago_descripcion.ilike.%Est. Mes 7%')
+
+    console.log(`🔍 DEBUG getEstanciaMensual: Resultado de consulta:`, { data, error })
+
+    if (error) {
+      console.error('Error obteniendo estancia mensual:', error)
+      return { success: false, error: 'Error al obtener la estancia mensual' }
+    }
+
+    // Si no hay datos, retornar 0
+    if (!data || data.length === 0) {
+      console.log(`❌ No se encontró estancia mensual para el alumno: ${alumnoRef}`)
+      return { success: true, estanciaMensual: 0 }
+    }
+
+    // Calcular el total de estancia mensual
+    const totalEstanciaMensual = data.reduce((total, item) => {
+      return total + (item.pago_costo * item.pago_cantidad)
+    }, 0)
+    
+    console.log(`✅ Estancia mensual encontrada para alumno ${alumnoRef}: $${totalEstanciaMensual}`)
+    
+    return { success: true, estanciaMensual: Math.round(totalEstanciaMensual * 100) / 100 }
+  } catch (error) {
+    console.error('Error inesperado obteniendo estancia mensual:', error)
+    return { success: false, error: 'Error inesperado al obtener la estancia mensual' }
   }
 }
 
@@ -842,7 +900,7 @@ export function calcularMontoAAbonar(costo: number, cantidad: number): number {
   return Math.round((costo * cantidad) * 100) / 100
 }
 
-// Función para procesar pago automático con saldo
+// Función para procesar pago automático con saldo (ahora permite pagos parciales)
 export async function processOrderWithSaldo(
   items: PagoDesayuno[], 
   alumnoRef: string
@@ -853,6 +911,8 @@ export async function processOrderWithSaldo(
   wasPaidWithSaldo: boolean;
   saldoUsed?: number;
   remainingSaldo?: number;
+  deudaRestante?: number;
+  isPartialPayment?: boolean;
 }> {
   try {
     // 1. Calcular el total de la orden
@@ -866,14 +926,30 @@ export async function processOrderWithSaldo(
     
     const saldoActual = saldoResult.saldo || 0
     
-    // 3. Verificar si el saldo cubre toda la orden
-    const saldoSuficiente = saldoActual >= totalOrden
+    // 3. Calcular cuánto saldo se puede usar
+    const saldoAUsar = Math.min(saldoActual, totalOrden)
+    const deudaRestante = totalOrden - saldoAUsar
     
     // 4. Generar número de orden único
     const orderNumber = await generateUniqueOrderNumber()
     
     // 5. Determinar el estatus de la orden
-    const estatusOrden = saldoSuficiente ? 1 : 2 // 1 = pagada, 2 = reservada
+    let estatusOrden: number
+    let isPartialPayment = false
+    
+    if (saldoAUsar === 0) {
+      // Sin saldo disponible
+      estatusOrden = 2 // Reservada
+      isPartialPayment = false
+    } else if (saldoAUsar === totalOrden) {
+      // Saldo cubre toda la orden
+      estatusOrden = 1 // Pagada
+      isPartialPayment = false
+    } else {
+      // Saldo cubre parcialmente la orden
+      estatusOrden = 2 // Reservada (con deuda)
+      isPartialPayment = true
+    }
     
     // 6. Preparar los datos para insertar
     const dataToInsert = items.map(item => ({
@@ -895,15 +971,13 @@ export async function processOrderWithSaldo(
       return { success: false, error: 'Error al guardar la orden', wasPaidWithSaldo: false }
     }
     
-    // 8. Si se pagó con saldo, actualizar el saldo del alumno
-    if (saldoSuficiente) {
-      const saldoRestante = saldoActual - totalOrden
-      const updateResult = await upsertSaldoAlumno(alumnoRef, -totalOrden) // Restar el total usado
+    // 8. Si se usó saldo (total o parcial), actualizar el saldo del alumno
+    if (saldoAUsar > 0) {
+      const saldoRestante = saldoActual - saldoAUsar
+      const updateResult = await upsertSaldoAlumno(alumnoRef, -saldoAUsar) // Restar el saldo usado
       
       if (!updateResult.success) {
         console.error('Error al actualizar saldo:', updateResult.error)
-        // La orden se guardó pero no se actualizó el saldo - esto es un problema
-        // Podríamos considerar hacer rollback de la orden
         return { 
           success: false, 
           error: 'Orden procesada pero error al actualizar saldo. Contacte al administrador.',
@@ -915,20 +989,281 @@ export async function processOrderWithSaldo(
         success: true,
         orderNumber,
         wasPaidWithSaldo: true,
-        saldoUsed: totalOrden,
-        remainingSaldo: saldoRestante
+        saldoUsed: saldoAUsar,
+        remainingSaldo: saldoRestante,
+        deudaRestante: deudaRestante,
+        isPartialPayment: isPartialPayment
       }
     }
     
-    // 9. Si no se pagó con saldo, la orden queda como reservada
+    // 9. Si no se usó saldo, la orden queda como reservada
     return {
       success: true,
       orderNumber,
-      wasPaidWithSaldo: false
+      wasPaidWithSaldo: false,
+      deudaRestante: totalOrden,
+      isPartialPayment: false
     }
     
   } catch (error) {
     console.error('Error en processOrderWithSaldo:', error)
     return { success: false, error: 'Error inesperado al procesar la orden', wasPaidWithSaldo: false }
+  }
+}
+
+// Función para actualizar un concepto de servicio por otro
+export async function updateConceptoService(
+  conceptoId: number,
+  nuevoServicioId: number,
+  nuevoServicioNombre: string,
+  nuevoServicioCosto: number,
+  alumnoRef: string
+): Promise<{
+  success: boolean;
+  error?: string;
+  montoAbonado?: number;
+  montoCobrado?: number;
+}> {
+  try {
+    console.log('🔍 DEBUG updateConceptoService:')
+    console.log('  - conceptoId:', conceptoId)
+    console.log('  - nuevoServicioId:', nuevoServicioId)
+    console.log('  - nuevoServicioNombre:', nuevoServicioNombre)
+    console.log('  - nuevoServicioCosto:', nuevoServicioCosto)
+    console.log('  - alumnoRef:', alumnoRef)
+
+    // 1. Obtener el concepto actual para calcular diferencias
+    const { data: conceptoActual, error: fetchError } = await supabase
+      .from('pago_desayunos')
+      .select('*')
+      .eq('id', conceptoId)
+      .single()
+
+    console.log('  - Concepto actual obtenido:', conceptoActual)
+    console.log('  - Error al obtener concepto:', fetchError)
+
+    if (fetchError || !conceptoActual) {
+      console.log('  - ❌ Error obteniendo concepto actual')
+      return { success: false, error: 'No se pudo obtener el concepto actual' }
+    }
+
+    // 2. Calcular diferencia de costo
+    const costoActual = conceptoActual.pago_costo
+    const diferenciaCosto = nuevoServicioCosto - costoActual
+    console.log('  - Costo actual:', costoActual)
+    console.log('  - Diferencia de costo:', diferenciaCosto)
+
+    // 3. Si el nuevo servicio es más caro, verificar saldo disponible
+    if (diferenciaCosto > 0) {
+      console.log('  - Servicio más caro, verificando saldo...')
+      const saldoResult = await getSaldoAlumno(alumnoRef)
+      console.log('  - Resultado de saldo:', saldoResult)
+      
+      if (!saldoResult.success) {
+        console.log('  - ❌ Error verificando saldo')
+        return { success: false, error: 'Error al verificar saldo del alumno' }
+      }
+
+      const saldoDisponible = saldoResult.saldo || 0
+      console.log('  - Saldo disponible:', saldoDisponible)
+      
+      if (saldoDisponible < diferenciaCosto) {
+        console.log('  - ❌ Saldo insuficiente')
+        return { 
+          success: false, 
+          error: `Saldo insuficiente. Necesita $${diferenciaCosto.toFixed(2)} MXN adicionales.` 
+        }
+      }
+    }
+
+    // 4. Actualizar el concepto con el nuevo servicio
+    console.log('  - Actualizando concepto en base de datos...')
+    const { error: updateError } = await supabase
+      .from('pago_desayunos')
+      .update({
+        pago_descripcion: nuevoServicioNombre,
+        pago_costo: nuevoServicioCosto
+        // Removido updated_at por ahora para evitar errores de campo inexistente
+      })
+      .eq('id', conceptoId)
+
+    console.log('  - Error al actualizar:', updateError)
+
+    if (updateError) {
+      console.log('  - ❌ Error en actualización de base de datos')
+      return { success: false, error: `Error al actualizar el servicio: ${updateError.message}` }
+    }
+
+    console.log('  - ✅ Concepto actualizado exitosamente')
+
+    // 5. Manejar diferencias de costo
+    if (diferenciaCosto > 0) {
+      // Servicio más caro: descontar del saldo
+      console.log('  - Descontando diferencia del saldo...')
+      const updateSaldoResult = await upsertSaldoAlumno(alumnoRef, -diferenciaCosto)
+      console.log('  - Resultado de descuento de saldo:', updateSaldoResult)
+      
+      if (!updateSaldoResult.success) {
+        console.log('  - ❌ Error al descontar del saldo')
+        return { 
+          success: false, 
+          error: 'Servicio actualizado pero error al descontar del saldo' 
+        }
+      }
+      
+      console.log('  - ✅ Saldo descontado exitosamente')
+      return {
+        success: true,
+        montoCobrado: diferenciaCosto
+      }
+    } else if (diferenciaCosto < 0) {
+      // Servicio más barato: abonar al saldo
+      console.log('  - Abonando diferencia al saldo...')
+      const montoAAbonar = Math.abs(diferenciaCosto)
+      const updateSaldoResult = await upsertSaldoAlumno(alumnoRef, montoAAbonar)
+      console.log('  - Resultado de abono de saldo:', updateSaldoResult)
+      
+      if (!updateSaldoResult.success) {
+        console.log('  - ❌ Error al abonar al saldo')
+        return { 
+          success: false, 
+          error: 'Servicio actualizado pero error al abonar al saldo' 
+        }
+      }
+      
+      console.log('  - ✅ Saldo abonado exitosamente')
+      return {
+        success: true,
+        montoAbonado: montoAAbonar
+      }
+    } else {
+      // Mismo precio
+      console.log('  - ✅ Mismo precio, no hay cambios en saldo')
+      return { success: true }
+    }
+
+  } catch (error) {
+    console.error('❌ Error en updateConceptoService:', error)
+    return { success: false, error: 'Error inesperado al modificar el servicio' }
+  }
+}
+
+// Función para verificar si el alumno ya tiene una orden de emergencia sin pagar
+export async function checkExistingEmergencyOrder(alumnoRef: string): Promise<{ 
+  success: boolean; 
+  hasEmergencyOrder: boolean; 
+  error?: string;
+  emergencyOrderNumber?: string;
+  emergencyOrderTotal?: number;
+}> {
+  try {
+    console.log('🔍 Verificando si el alumno ya tiene orden de emergencia:', alumnoRef)
+    
+    // Buscar órdenes de emergencia (estatus 3) para este alumno
+    const { data, error } = await supabase
+      .from('pago_desayunos')
+      .select('pago_orden, pago_costo, pago_cantidad')
+      .eq('pago_ref', alumnoRef)
+      .eq('pago_estatus', 3) // Solo órdenes de emergencia
+      .not('pago_orden', 'is', null)
+
+    if (error) {
+      console.error('❌ Error verificando órdenes de emergencia:', error)
+      return { success: false, hasEmergencyOrder: false, error: 'Error al verificar órdenes de emergencia' }
+    }
+
+    if (!data || data.length === 0) {
+      console.log('✅ No hay órdenes de emergencia existentes')
+      return { success: true, hasEmergencyOrder: false }
+    }
+
+    // Agrupar por número de orden y calcular total
+    const ordenes: { [key: string]: number } = {}
+    data.forEach(item => {
+      if (item.pago_orden) {
+        if (!ordenes[item.pago_orden]) {
+          ordenes[item.pago_orden] = 0
+        }
+        ordenes[item.pago_orden] += item.pago_costo * item.pago_cantidad
+      }
+    })
+
+    // Tomar la primera orden de emergencia encontrada
+    const emergencyOrderNumber = Object.keys(ordenes)[0]
+    const emergencyOrderTotal = ordenes[emergencyOrderNumber] || 0
+
+    console.log(`⚠️ Alumno ya tiene orden de emergencia: ${emergencyOrderNumber} por $${emergencyOrderTotal}`)
+    
+    return { 
+      success: true, 
+      hasEmergencyOrder: true, 
+      emergencyOrderNumber,
+      emergencyOrderTotal
+    }
+    
+  } catch (error) {
+    console.error('❌ Error inesperado verificando órdenes de emergencia:', error)
+    return { success: false, hasEmergencyOrder: false, error: 'Error inesperado' }
+  }
+}
+
+// Función para procesar órdenes de emergencia (NO usa saldo del alumno)
+export async function processEmergencyOrder(
+  alumnoRef: string,
+  items: { desayuno_nombre: string; costo: number; fecha_pedido?: string }[],
+  total: number
+): Promise<{ 
+  success: boolean; 
+  error?: string; 
+  orderNumber?: string;
+  deudaRestante?: number;
+  isPartialPayment?: boolean;
+}> {
+  try {
+    console.log('🚨 Procesando orden de emergencia para alumno:', alumnoRef)
+    console.log('📦 Items:', items)
+    console.log('💰 Total:', total)
+    
+    // 1. Generar número de orden único
+    const orderNumber = await generateUniqueOrderNumber()
+    console.log('🔢 Número de orden generado:', orderNumber)
+    
+    // 2. Preparar los datos para insertar en pago_desayunos
+    const dataToInsert = items.map(item => ({
+      pago_ref: alumnoRef,
+      pago_descripcion: item.desayuno_nombre,
+      pago_costo: item.costo,
+      pago_fecha: item.fecha_pedido || new Date().toISOString().split('T')[0],
+      pago_cantidad: 1,
+      pago_orden: orderNumber,
+      pago_estatus: 3 // 3 = Emergencia (puede ser entregado sin pagar ese día)
+    }))
+    
+    console.log('📝 Datos a insertar:', dataToInsert)
+    
+    // 3. Insertar la orden en la base de datos
+    const { data, error } = await supabase
+      .from('pago_desayunos')
+      .insert(dataToInsert)
+      .select()
+    
+    if (error) {
+      console.error('❌ Error al insertar orden de emergencia:', error)
+      return { success: false, error: 'Error al guardar la orden de emergencia' }
+    }
+    
+    console.log('✅ Orden de emergencia guardada exitosamente:', data)
+    
+    // 4. Retornar éxito (NO se usa saldo, se paga a caja)
+    return {
+      success: true,
+      orderNumber,
+      deudaRestante: total, // Deuda total (se paga a caja)
+      isPartialPayment: false // No es pago parcial, es pago completo a caja
+    }
+    
+  } catch (error) {
+    console.error('❌ Error en processEmergencyOrder:', error)
+    return { success: false, error: 'Error interno del servidor' }
   }
 }

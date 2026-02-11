@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
-import { FaSearch, FaShoppingCart, FaArrowLeft, FaPlus, FaMinus, FaTrash, FaTimes, FaDownload, FaPrint, FaCalendarAlt } from 'react-icons/fa'
+import { FaSearch, FaShoppingCart, FaArrowLeft, FaPlus, FaTrash, FaTimes, FaPrint, FaCalendarAlt } from 'react-icons/fa'
 import { useAuth } from '@/contexts/AuthContext'
 import { getConceptosDesayunos, PagoDesayuno, getAllPagosVigentes, processOrderWithSaldo } from '@/lib/supabase'
 import jsPDF from 'jspdf'
@@ -16,7 +16,7 @@ interface ConceptoDesayuno {
 }
 
 interface CartItem extends ConceptoDesayuno {
-  quantity: number
+  cartItemId: string // ID único para cada partida individual
   fecha_pedido?: string // Fecha específica para este item
 }
 
@@ -37,6 +37,8 @@ export default function ServiciosInternosPage() {
     wasPaidWithSaldo?: boolean
     saldoUsed?: number
     remainingSaldo?: number
+    deudaRestante?: number
+    isPartialPayment?: boolean
   } | null>(null)
   const [isProcessingOrder, setIsProcessingOrder] = useState(false)
   const [showCalendar, setShowCalendar] = useState(false)
@@ -139,18 +141,12 @@ export default function ServiciosInternosPage() {
   }
 
   const addToCart = (producto: ConceptoDesayuno) => {
-    setCart(prevCart => {
-      const existingItem = prevCart.find(item => item.id === producto.id)
-      if (existingItem) {
-        return prevCart.map(item =>
-          item.id === producto.id
-            ? { ...item, quantity: item.quantity + 1 }
-            : item
-        )
-      } else {
-        return [...prevCart, { ...producto, quantity: 1 }] // Sin fecha por defecto
-      }
-    })
+    const newCartItem: CartItem = {
+      ...producto,
+      cartItemId: Date.now().toString() + Math.random().toString(36).substr(2, 9), // Generar un ID único más robusto
+      fecha_pedido: undefined // No asignar fecha al agregar al carrito
+    }
+    setCart(prevCart => [...prevCart, newCartItem])
     setSearchTerm('')
     setFilteredProductos([])
   }
@@ -282,24 +278,14 @@ export default function ServiciosInternosPage() {
     })
   }
 
-  const updateQuantity = (id: number, newQuantity: number) => {
-    if (newQuantity <= 0) {
-      removeFromCart(id)
-    } else {
-      setCart(prevCart =>
-        prevCart.map(item =>
-          item.id === id ? { ...item, quantity: newQuantity } : item
-        )
-      )
-    }
-  }
+  // Función eliminada - ya no se necesita quantity
 
-  const removeFromCart = (id: number) => {
-    setCart(prevCart => prevCart.filter(item => item.id !== id))
+  const removeFromCart = (cartItemId: string) => {
+    setCart(prevCart => prevCart.filter(item => item.cartItemId !== cartItemId))
   }
 
   const calculateTotal = () => {
-    return cart.reduce((total, item) => total + (item.costo * item.quantity), 0)
+    return cart.reduce((total, item) => total + item.costo, 0)
   }
 
   const handleProcessOrder = async () => {
@@ -329,7 +315,7 @@ export default function ServiciosInternosPage() {
         pago_descripcion: item.desayuno_nombre,
         pago_costo: item.costo,
         pago_fecha: item.fecha_pedido || null, // Usar fecha asignada o NULL si no hay fecha
-        pago_cantidad: item.quantity,
+        pago_cantidad: 1, // Siempre 1 para partidas individuales
         pago_orden: '', // Se asignará en la función processOrderWithSaldo
         pago_estatus: 2 // 2 = en proceso (tanto con fecha como sin fecha)
       }))
@@ -347,7 +333,7 @@ export default function ServiciosInternosPage() {
           id: item.id,
           nombre: item.desayuno_nombre,
           fecha_pedido: item.fecha_pedido,
-          cantidad: item.quantity
+          cartItemId: item.cartItemId
         })
       })
       
@@ -378,7 +364,9 @@ export default function ServiciosInternosPage() {
           }),
           wasPaidWithSaldo: result.wasPaidWithSaldo,
           saldoUsed: result.saldoUsed,
-          remainingSaldo: result.remainingSaldo
+          remainingSaldo: result.remainingSaldo,
+          deudaRestante: result.deudaRestante,
+          isPartialPayment: result.isPartialPayment
         }
 
         setOrderData(orderInfo)
@@ -442,10 +430,10 @@ export default function ServiciosInternosPage() {
     // Productos
     let yPosition = 135
     orderData.items.forEach((item) => {
-      doc.text(item.quantity.toString(), 25, yPosition, { align: 'center' })
+      doc.text('1', 25, yPosition, { align: 'center' })
       doc.text(item.desayuno_nombre, 50, yPosition)
       doc.text(`$${item.costo.toFixed(2)}`, 135, yPosition, { align: 'right' })
-      doc.text(`$${(item.costo * item.quantity).toFixed(2)}`, 180, yPosition, { align: 'right' })
+      doc.text(`$${item.costo.toFixed(2)}`, 180, yPosition, { align: 'right' })
       yPosition += 10
     })
     
@@ -461,8 +449,17 @@ export default function ServiciosInternosPage() {
     
     // Mensaje de pie
     doc.setFontSize(10)
-    doc.text('¡Gracias por su compra!', 105, yPosition + 45, { align: 'center' })
-    doc.text('Conserve este ticket como comprobante', 105, yPosition + 55, { align: 'center' })
+    if (orderData.wasPaidWithSaldo && orderData.isPartialPayment) {
+      doc.text('Orden reservada con pago parcial de saldo', 105, yPosition + 45, { align: 'center' })
+      doc.text(`Deuda restante: $${orderData.deudaRestante?.toFixed(2)}`, 105, yPosition + 55, { align: 'center' })
+      doc.text('Conserve este ticket como comprobante', 105, yPosition + 65, { align: 'center' })
+    } else if (orderData.wasPaidWithSaldo) {
+      doc.text('¡Gracias por su compra!', 105, yPosition + 45, { align: 'center' })
+      doc.text('Conserve este ticket como comprobante de pago', 105, yPosition + 55, { align: 'center' })
+    } else {
+      doc.text('¡Gracias por su compra!', 105, yPosition + 45, { align: 'center' })
+      doc.text('Conserve este ticket como comprobante', 105, yPosition + 55, { align: 'center' })
+    }
     
     // Abrir PDF en nueva ventana
     const pdfOutput = doc.output('bloburl')
@@ -775,7 +772,7 @@ export default function ServiciosInternosPage() {
                 <>
                   <div className="space-y-3 mb-6 max-h-64 overflow-y-auto">
                     {cart.map((item) => (
-                      <div key={item.id} className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
+                      <div key={item.cartItemId} className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
                         <div className="flex items-center justify-between mb-3">
                           <div className="flex-1">
                             <h3 className="font-semibold text-gray-800">{item.desayuno_nombre}</h3>
@@ -800,37 +797,22 @@ export default function ServiciosInternosPage() {
                             </div>
                           </div>
                           <div className="text-right">
-                            <p className="text-lg font-bold text-gray-800">${(item.costo * item.quantity).toFixed(2)}</p>
+                            <p className="text-lg font-bold text-gray-800">${item.costo.toFixed(2)}</p>
                           </div>
                         </div>
                         <div className="flex items-center gap-2 bg-gray-50 rounded-lg p-3 border border-gray-200">
                           <button
-                            onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                            className="w-7 h-7 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg flex items-center justify-center hover:from-red-600 hover:to-red-700 transform hover:scale-110 transition-all duration-200 shadow-md hover:shadow-lg"
-                            title="Reducir cantidad"
-                          >
-                            <FaMinus className="text-sm" />
-                          </button>
-                          <span className="w-10 text-center font-bold text-gray-800 text-lg bg-white px-2 py-1 rounded border">{item.quantity}</span>
-                          <button
-                            onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                            className="w-7 h-7 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg flex items-center justify-center hover:from-green-600 hover:to-green-700 transform hover:scale-110 transition-all duration-200 shadow-md hover:shadow-lg"
-                            title="Aumentar cantidad"
-                          >
-                            <FaPlus className="text-sm" />
-                          </button>
-                          <button
                             onClick={() => openCalendar(item)}
-                            className="w-8 h-8 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-lg flex items-center justify-center hover:from-purple-600 hover:to-purple-700 transform hover:scale-110 transition-all duration-200 ml-2 shadow-md hover:shadow-lg"
+                            className="w-8 h-8 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-lg flex items-center justify-center hover:from-purple-600 hover:to-purple-700 transform hover:scale-110 transition-all duration-200 shadow-md hover:shadow-lg"
                             title="Asignar fecha al servicio"
                           >
                             <FaCalendarAlt className="text-sm" />
                           </button>
-                          <button
-                            onClick={() => removeFromCart(item.id)}
-                            className="w-8 h-8 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg flex items-center justify-center hover:from-red-600 hover:to-red-700 transform hover:scale-110 transition-all duration-200 shadow-md hover:shadow-lg"
-                            title="Eliminar del carrito"
-                          >
+                                                      <button
+                              onClick={() => removeFromCart(item.cartItemId)}
+                              className="w-8 h-8 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg flex items-center justify-center hover:from-red-600 hover:to-red-700 transform hover:scale-110 transition-all duration-200 shadow-md hover:shadow-lg"
+                              title="Eliminar del carrito"
+                            >
                             <FaTrash className="text-sm" />
                           </button>
                         </div>
@@ -935,9 +917,9 @@ export default function ServiciosInternosPage() {
                     <div key={index} className="flex justify-between items-center text-sm">
                       <div className="flex-1">
                         <p className="font-medium text-gray-800">{item.desayuno_nombre}</p>
-                        <p className="text-gray-600">{item.quantity} x ${item.costo.toFixed(2)}</p>
+                        <p className="text-gray-600">${item.costo.toFixed(2)}</p>
                       </div>
-                      <p className="font-bold text-gray-800">${(item.costo * item.quantity).toFixed(2)}</p>
+                      <p className="font-bold text-gray-800">${item.costo.toFixed(2)}</p>
                     </div>
                   ))}
                 </div>
@@ -950,7 +932,7 @@ export default function ServiciosInternosPage() {
                 </div>
                 
                 {/* Información del Pago Automático con Saldo */}
-                {orderData.wasPaidWithSaldo && (
+                {orderData.wasPaidWithSaldo && !orderData.isPartialPayment && (
                   <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
                     <div className="flex items-center gap-2 mb-2">
                       <span className="text-green-600">✅</span>
@@ -958,6 +940,21 @@ export default function ServiciosInternosPage() {
                     </div>
                     <div className="text-xs text-green-700 space-y-1">
                       <p>Saldo usado: <span className="font-semibold">${orderData.saldoUsed?.toFixed(2)}</span></p>
+                      <p>Saldo restante: <span className="font-semibold">${orderData.remainingSaldo?.toFixed(2)}</span></p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Información del Pago Parcial con Saldo */}
+                {orderData.wasPaidWithSaldo && orderData.isPartialPayment && (
+                  <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-blue-600">💰</span>
+                      <span className="text-blue-800 font-semibold text-sm">PAGO PARCIAL CON SALDO</span>
+                    </div>
+                    <div className="text-xs text-blue-700 space-y-1">
+                      <p>Saldo usado: <span className="font-semibold">${orderData.saldoUsed?.toFixed(2)}</span></p>
+                      <p>Deuda restante: <span className="font-semibold text-red-600">${orderData.deudaRestante?.toFixed(2)}</span></p>
                       <p>Saldo restante: <span className="font-semibold">${orderData.remainingSaldo?.toFixed(2)}</span></p>
                     </div>
                   </div>
@@ -994,6 +991,12 @@ export default function ServiciosInternosPage() {
                 {!orderData.wasPaidWithSaldo ? (
                   <>
                     <p className="text-red-600 font-semibold text-sm">Favor de pagar en caja en las Instalaciones del Colegio</p>
+                    <p className="text-gray-500 text-xs">Conserve este ticket como comprobante</p>
+                  </>
+                ) : orderData.isPartialPayment ? (
+                  <>
+                    <p className="text-blue-600 font-semibold text-sm">Orden reservada con pago parcial de saldo</p>
+                    <p className="text-red-600 text-sm">Deuda restante: ${orderData.deudaRestante?.toFixed(2)}</p>
                     <p className="text-gray-500 text-xs">Conserve este ticket como comprobante</p>
                   </>
                 ) : (
