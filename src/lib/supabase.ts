@@ -1,20 +1,27 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient, SupabaseClient } from '@supabase/supabase-js'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-console.log('🔧 DEBUG Supabase Config:')
-console.log('  - supabaseUrl:', supabaseUrl ? '✅ Configurado' : '❌ No configurado')
-console.log('  - supabaseKey:', supabaseKey ? '✅ Configurado' : '❌ No configurado')
+let _supabase: SupabaseClient | null = null
 
-export const supabase = createClient(supabaseUrl, supabaseKey)
+function getSupabase(): SupabaseClient {
+  if (_supabase) return _supabase
+  if (!supabaseUrl || !supabaseKey) {
+    throw new Error('Variables de entorno NEXT_PUBLIC_SUPABASE_URL y NEXT_PUBLIC_SUPABASE_ANON_KEY son requeridas')
+  }
+  _supabase = createClient(supabaseUrl, supabaseKey)
+  return _supabase
+}
 
-// Test de conexión a Supabase
-supabase.auth.getSession().then(({ data, error }) => {
-  if (error) {
-    console.log('❌ Error de conexión a Supabase:', error)
-  } else {
-    console.log('✅ Conexión a Supabase exitosa')
+export const supabase = new Proxy({} as SupabaseClient, {
+  get(_target, prop) {
+    const client = getSupabase()
+    const value = client[prop as keyof SupabaseClient]
+    if (typeof value === 'function') {
+      return (value as (...args: unknown[]) => unknown).bind(client)
+    }
+    return value
   }
 })
 
