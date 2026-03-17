@@ -21,7 +21,7 @@ interface CartItem extends ConceptoDesayuno {
 }
 
 export default function ServiciosInternosPage() {
-  const { user, isLoading } = useAuth()
+  const { user } = useAuth()
   const router = useRouter()
   const [searchTerm, setSearchTerm] = useState('')
   const [productos, setProductos] = useState<ConceptoDesayuno[]>([])
@@ -65,11 +65,6 @@ export default function ServiciosInternosPage() {
     return localDate.toLocaleDateString('es-ES')
   }
 
-  useEffect(() => {
-    if (!isLoading && !user) {
-      router.push('/')
-    }
-  }, [user, isLoading, router])
 
   useEffect(() => {
     loadProductos()
@@ -466,21 +461,6 @@ export default function ServiciosInternosPage() {
     window.open(pdfOutput, '_blank')
   }
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center">
-        <div className="flex flex-col items-center space-y-4">
-          <div className="w-16 h-16 border-4 border-white/20 border-t-white rounded-full animate-spin"></div>
-          <span className="text-white text-lg font-medium animate-pulse">Cargando...</span>
-        </div>
-      </div>
-    )
-  }
-
-  if (!user) {
-    return null
-  }
-
   return (
     <div className="min-h-screen relative overflow-hidden">
       {/* Diagonal Background Effect */}
@@ -519,7 +499,7 @@ export default function ServiciosInternosPage() {
             </div>
             <div className="flex items-center gap-2 sm:justify-end">
               <p className="text-xs sm:text-sm text-gray-600 font-bold">Alumno:</p>
-              <p className="font-semibold text-gray-800 text-sm sm:text-base truncate max-w-[200px] sm:max-w-none">{user.alumno_nombre_completo}</p>
+              <p className="font-semibold text-gray-800 text-sm sm:text-base truncate max-w-[200px] sm:max-w-none">{user?.alumno_nombre_completo}</p>
             </div>
           </div>
         </div>
@@ -901,11 +881,11 @@ export default function ServiciosInternosPage() {
                   </div>
                   <div>
                     <p className="text-gray-600">Alumno:</p>
-                    <p className="font-semibold text-gray-800">{user.alumno_nombre_completo}</p>
+                    <p className="font-semibold text-gray-800">{user?.alumno_nombre_completo}</p>
                   </div>
                   <div>
                     <p className="text-gray-600">Num. Control:</p>
-                    <p className="font-semibold text-gray-800">{user.alumno_ref}</p>
+                    <p className="font-semibold text-gray-800">{user?.alumno_ref}</p>
                   </div>
                 </div>
               </div>

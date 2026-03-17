@@ -21,7 +21,7 @@ interface CartItem extends ConceptoDesayuno {
 }
 
 export default function ServicioEmergentePage() {
-  const { user, isLoading } = useAuth()
+  const { user } = useAuth()
   const router = useRouter()
   const [cart, setCart] = useState<CartItem[]>([])
   const [showTicketModal, setShowTicketModal] = useState(false)
@@ -43,11 +43,6 @@ export default function ServicioEmergentePage() {
   const [productos, setProductos] = useState<ConceptoDesayuno[]>([])
   const [isLoadingProductos, setIsLoadingProductos] = useState(true)
 
-  useEffect(() => {
-    if (!isLoading && !user) {
-      router.push('/')
-    }
-  }, [user, isLoading, router])
 
   useEffect(() => {
     loadProductos()
@@ -334,23 +329,6 @@ export default function ServicioEmergentePage() {
     window.open(pdfOutput, '_blank')
   }
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center">
-        <div className="flex flex-col items-center space-y-4">
-          <div className="relative">
-            <div className="w-16 h-16 border-4 border-white/20 border-t-white rounded-full animate-spin"></div>
-            <div className="absolute inset-0 w-16 h-16 border-4 border-transparent border-r-purple-400 rounded-full animate-spin"></div>
-          </div>
-          <span className="text-white text-lg font-medium animate-pulse">Cargando el futuro...</span>
-        </div>
-      </div>
-    )
-  }
-
-  if (!user) {
-    return null
-  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900">
@@ -366,7 +344,7 @@ export default function ServicioEmergentePage() {
           </button>
           <h1 className="text-2xl font-bold">🚨 Servicio Emergente</h1>
           <div className="text-right">
-            <p className="font-semibold">Alumno: {user.alumno_nombre_completo}</p>
+            <p className="font-semibold">Alumno: {user?.alumno_nombre_completo}</p>
           </div>
         </div>
       </header>

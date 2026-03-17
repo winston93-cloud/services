@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { FaSignOutAlt, FaStar, FaBars, FaTimes, FaUtensils } from 'react-icons/fa'
@@ -8,19 +8,13 @@ import NotificationsBell from '@/components/NotificationsBell'
 import { useAuth } from '@/contexts/AuthContext'
 
 export default function DashboardPage() {
-  const { user, logout, isLoading } = useAuth()
+  const { user, logout } = useAuth()
   const router = useRouter()
   const [isMenuOpen, setIsMenuOpen] = useState(false)
 
-  useEffect(() => {
-    if (!isLoading && !user) {
-      router.push('/')
-    }
-  }, [user, isLoading, router])
-
   const handleLogout = () => {
     logout()
-    router.push('/')
+    router.push('/dashboard')
   }
 
   const toggleMenu = () => {
@@ -30,24 +24,6 @@ export default function DashboardPage() {
   const menuItems = [
     { emoji: "🍽️", title: "Desayunos, Estancias y Comidas", desc: "Servicios de alimentación escolar" }
   ]
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center">
-        <div className="flex flex-col items-center space-y-4">
-          <div className="relative">
-            <div className="w-16 h-16 border-4 border-white/20 border-t-white rounded-full animate-spin"></div>
-            <div className="absolute inset-0 w-16 h-16 border-4 border-transparent border-r-purple-400 rounded-full animate-spin"></div>
-          </div>
-          <span className="text-white text-lg font-medium animate-pulse">Cargando el futuro...</span>
-        </div>
-      </div>
-    )
-  }
-
-  if (!user) {
-    return null
-  }
 
   return (
     <div className="min-h-screen relative overflow-hidden">
@@ -101,12 +77,16 @@ export default function DashboardPage() {
                 <div className="bg-white/20 backdrop-blur-sm rounded-xl p-3 border border-white/30">
                   <p className="text-white flex items-center gap-2 text-base sm:text-lg font-bold">
                     <FaStar className="text-yellow-300 animate-pulse text-lg" />
-                    <span className="hidden sm:inline">Bienvenido, </span>
-                    <span className="truncate max-w-[180px] sm:max-w-none">
-                      {user.alumno_nombre_completo}
-                    </span>
-                    <span className="text-blue-200 mx-2">•</span>
-                    <span className="font-mono font-bold text-yellow-200">{user.alumno_ref}</span>
+                    <span className="hidden sm:inline">Bienvenido</span>
+                    {user && (
+                      <>
+                        <span className="truncate max-w-[180px] sm:max-w-none">
+                          {user.alumno_nombre_completo}
+                        </span>
+                        <span className="text-blue-200 mx-2">•</span>
+                        <span className="font-mono font-bold text-yellow-200">{user.alumno_ref}</span>
+                      </>
+                    )}
                   </p>
                 </div>
               </div>
