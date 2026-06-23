@@ -1,221 +1,24 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js'
+import { getDatabase } from './insforge'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-let _supabase: SupabaseClient | null = null
-
-function getSupabase(): SupabaseClient {
-  if (_supabase) return _supabase
-  if (!supabaseUrl || !supabaseKey) {
-    throw new Error('Variables de entorno NEXT_PUBLIC_SUPABASE_URL y NEXT_PUBLIC_SUPABASE_ANON_KEY son requeridas')
-  }
-  _supabase = createClient(supabaseUrl, supabaseKey)
-  return _supabase
+/** Cliente DB InsForge (Desayunos). Mantiene nombre `supabase` por compatibilidad. */
+export const supabase = {
+  from(table: string) {
+    return getDatabase().from(table)
+  },
 }
 
-export const supabase = new Proxy({} as SupabaseClient, {
-  get(_target, prop) {
-    const client = getSupabase()
-    const value = client[prop as keyof SupabaseClient]
-    if (typeof value === 'function') {
-      return (value as (...args: unknown[]) => unknown).bind(client)
-    }
-    return value
-  }
-})
-
-// Función de test para verificar la tabla alumno
+// Diagnóstico rápido: catálogo Desayunos + API login Winston Servicios
 export async function testAlumnoTable() {
   try {
-    console.log('🧪 TEST: Verificando tabla alumno...')
-    
-    // Test 1: Verificar que la tabla existe
-    const { data: testData, error: testError } = await supabase
-      .from('alumno')
-      .select('count')
-      .limit(1)
-    
-    if (testError) {
-      console.log('❌ Error accediendo a tabla alumno:', testError)
+    const { data, error } = await supabase.from('concepto_desayunos').select('id').limit(1)
+    if (error) {
+      console.log('❌ InsForge Desayunos no accesible:', error)
       return false
     }
-    
-    console.log('✅ Tabla alumno accesible')
-    
-    // Test 2: Verificar estructura de la tabla
-    console.log('🔍 Test 2: Intentando obtener estructura de la tabla...')
-    
-    // Test 2a: Probar con select específico
-    const { data: structureDataSpecific, error: structureErrorSpecific } = await supabase
-      .from('alumno')
-      .select('alumno_ref, alumno_nombre')
-      .limit(5)
-    
-    if (structureErrorSpecific) {
-      console.log('❌ Error con select específico:', structureErrorSpecific)
-    } else {
-      console.log('✅ Select específico exitoso:', structureDataSpecific)
-    }
-    
-    // Test 2b: Probar con select count
-    const { data: countData, error: countError } = await supabase
-      .from('alumno')
-      .select('*', { count: 'exact', head: true })
-    
-    if (countError) {
-      console.log('❌ Error obteniendo count:', countError)
-    } else {
-      console.log('✅ Count de registros:', countData)
-    }
-    
-    // Test 2c: Probar con select * (original)
-    const { data: structureData, error: structureError } = await supabase
-      .from('alumno')
-      .select('*')
-      .limit(5)
-    
-    if (structureError) {
-      console.log('❌ Error obteniendo estructura completa:', structureError)
-      console.log('  - Código:', structureError.code)
-      console.log('  - Mensaje:', structureError.message)
-      console.log('  - Detalles:', structureError.details)
-    } else {
-      console.log('✅ Estructura completa obtenida:', structureData)
-    }
-    
-    // Test 2.1: Verificar campos específicos
-    if (structureData && structureData.length > 0) {
-      const firstRecord = structureData[0]
-      console.log('🔍 Campos disponibles en el primer registro:')
-      console.log('  - Keys:', Object.keys(firstRecord))
-      console.log('  - Primer registro completo:', firstRecord)
-      
-      // Verificar si existe alumno_ref
-      if ('alumno_ref' in firstRecord) {
-        console.log('✅ Campo alumno_ref encontrado')
-      } else {
-        console.log('❌ Campo alumno_ref NO encontrado')
-        console.log('🔍 Buscando campos similares...')
-        const possibleFields = Object.keys(firstRecord).filter(key => 
-          key.toLowerCase().includes('ref') || 
-          key.toLowerCase().includes('control') || 
-          key.toLowerCase().includes('numero') ||
-          key.toLowerCase().includes('id')
-        )
-        console.log('  - Campos posibles:', possibleFields)
-      }
-    }
-    
-    // Test 3: Buscar específicamente el número de control 20230
-    console.log('🔍 Buscando alumno con número de control 20230...')
-    const { data: alumno20230, error: alumnoError } = await supabase
-      .from('alumno')
-      .select('*')
-      .eq('alumno_ref', '20230')
-      .single()
-    
-    if (alumnoError) {
-      console.log('❌ Error buscando alumno 20230:', alumnoError)
-      console.log('  - Código de error:', alumnoError.code)
-      console.log('  - Mensaje:', alumnoError.message)
-      console.log('  - Detalles:', alumnoError.details)
-    } else if (alumno20230) {
-      console.log('✅ Alumno 20230 encontrado:', alumno20230)
-    } else {
-      console.log('❌ Alumno 20230 NO encontrado')
-    }
-    
-    // Test 3.1: Probar con .maybeSingle() en lugar de .single()
-    console.log('🔍 Probando con .maybeSingle() para alumno 20230...')
-    const { data: alumno20230Maybe, error: alumno20230MaybeError } = await supabase
-      .from('alumno')
-      .select('*')
-      .eq('alumno_ref', '20230')
-      .maybeSingle()
-    
-    if (alumno20230MaybeError) {
-      console.log('❌ Error con .maybeSingle():', alumno20230MaybeError)
-    } else if (alumno20230Maybe) {
-      console.log('✅ Alumno 20230 encontrado con .maybeSingle():', alumno20230Maybe)
-    } else {
-      console.log('❌ Alumno 20230 NO encontrado con .maybeSingle()')
-    }
-    
-    // Test 4: Verificar si hay otras tablas relacionadas
-    console.log('🔍 Verificando otras tablas posibles...')
-    
-    // Probar tabla 'alumnos' (plural)
-    try {
-      const { data: alumnosData, error: alumnosError } = await supabase
-        .from('alumnos')
-        .select('*')
-        .limit(1)
-      
-      if (!alumnosError && alumnosData) {
-        console.log('✅ Tabla "alumnos" (plural) encontrada con datos:', alumnosData)
-      }
-    } catch (e) {
-      console.log('❌ Tabla "alumnos" (plural) no existe')
-    }
-    
-    // Probar tabla 'estudiantes'
-    try {
-      const { data: estudiantesData, error: estudiantesError } = await supabase
-        .from('estudiantes')
-        .select('*')
-        .limit(1)
-      
-      if (!estudiantesError && estudiantesData) {
-        console.log('✅ Tabla "estudiantes" encontrada con datos:', estudiantesData)
-      }
-    } catch (e) {
-      console.log('❌ Tabla "estudiantes" no existe')
-    }
-    
-    // Probar tabla 'usuarios'
-    try {
-      const { data: usuariosData, error: usuariosError } = await supabase
-        .from('usuarios')
-        .select('*')
-        .limit(1)
-      
-      if (!usuariosError && usuariosData) {
-        console.log('✅ Tabla "usuarios" encontrada con datos:', usuariosData)
-      }
-    } catch (e) {
-      console.log('❌ Tabla "usuarios" no existe')
-    }
-    
-    // Test 5: Verificar RLS y probar con autenticación
-    console.log('🔍 Test 5: Verificando RLS y autenticación...')
-    
-    // Probar si el problema es de autenticación
-    const { data: authData, error: authError } = await supabase.auth.getSession()
-    if (authError) {
-      console.log('❌ Error de autenticación:', authError)
-    } else {
-      console.log('✅ Estado de autenticación:', authData.session ? 'Autenticado' : 'No autenticado')
-    }
-    
-    // Probar con una consulta SQL directa (si es posible)
-    console.log('🔍 Test 6: Probando consulta SQL directa...')
-    try {
-      const { data: sqlData, error: sqlError } = await supabase
-        .rpc('get_alumno_count')
-      
-      if (sqlError) {
-        console.log('❌ Error en función RPC:', sqlError)
-      } else {
-        console.log('✅ Función RPC exitosa:', sqlData)
-      }
-    } catch (e) {
-      console.log('❌ Función RPC no disponible')
-    }
-    
+    console.log('✅ InsForge Desayunos OK, conceptos:', data?.length ?? 0)
     return true
   } catch (error) {
-    console.error('❌ Error en test de tabla alumno:', error)
+    console.error('❌ Error en test de conexión:', error)
     return false
   }
 }
@@ -318,34 +121,19 @@ export async function markNotificationAsRead(id: number): Promise<{ success: boo
   }
 }
 
-// Función para login con número de control
+// Función para login con número de control (alumno en Winston Servicios vía API)
 export async function loginAlumno(numeroControl: string): Promise<{ success: boolean; error?: string; user?: Alumno }> {
   try {
-    console.log('🔍 DEBUG loginAlumno:')
-    console.log('  - numeroControl:', numeroControl)
-    
-    const { data, error } = await supabase
-      .from('alumno')
-      .select('*')
-      .eq('alumno_ref', numeroControl)
-      .single()
-
-    console.log('  - Supabase response:')
-    console.log('    - data:', data)
-    console.log('    - error:', error)
-
-    if (error) {
-      console.log('  - ❌ Error de Supabase:', error)
-      return { success: false, error: 'Número de control no encontrado' }
+    const res = await fetch('/api/alumno/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ numeroControl }),
+    })
+    const payload = (await res.json()) as { success: boolean; error?: string; user?: Alumno }
+    if (!payload.success || !payload.user) {
+      return { success: false, error: payload.error ?? 'Número de control no encontrado' }
     }
-
-    if (!data) {
-      console.log('  - ❌ No se encontraron datos')
-      return { success: false, error: 'Alumno no encontrado' }
-    }
-
-    console.log('  - ✅ Login exitoso, usuario encontrado:', data)
-    return { success: true, user: data }
+    return { success: true, user: payload.user }
   } catch (error) {
     console.error('  - ❌ Error en login:', error)
     return { success: false, error: 'Error de conexión. Intente nuevamente.' }
