@@ -263,6 +263,43 @@ export async function getConceptosPagados(alumnoRef: string): Promise<{ success:
   }
 }
 
+// Consulta ligera: ¿hay orden pendiente de pago (estatus 2)?
+export async function getOrdenPendiente(alumnoRef: string): Promise<{
+  success: boolean
+  hasPending: boolean
+  orderNumber?: string
+  error?: string
+}> {
+  try {
+    const { data, error } = await supabase
+      .from('pago_desayunos')
+      .select('pago_orden')
+      .eq('pago_ref', alumnoRef)
+      .eq('pago_estatus', 2)
+      .not('pago_orden', 'is', null)
+      .limit(1)
+
+    if (error) {
+      console.error('Error verificando orden pendiente:', error)
+      return { success: false, hasPending: false, error: 'Error al verificar órdenes' }
+    }
+
+    const row = data?.[0]
+    if (!row?.pago_orden) {
+      return { success: true, hasPending: false }
+    }
+
+    return {
+      success: true,
+      hasPending: true,
+      orderNumber: String(row.pago_orden),
+    }
+  } catch (error) {
+    console.error('Error en getOrdenPendiente:', error)
+    return { success: false, hasPending: false, error: 'Error de conexión' }
+  }
+}
+
 // Función para obtener todos los pagos (reservados y pagados) que no han pasado de fecha
 export async function getAllPagosVigentes(alumnoRef: string): Promise<{ success: boolean; error?: string; data?: PagoDesayuno[] }> {
   try {

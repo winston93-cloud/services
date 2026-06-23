@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { FaSearch, FaShoppingCart, FaArrowLeft, FaPlus, FaTrash, FaTimes, FaPrint, FaCalendarAlt } from 'react-icons/fa'
 import { useAuth } from '@/contexts/AuthContext'
-import { getConceptosDesayunos, PagoDesayuno, getAllPagosVigentes, processOrderWithSaldo } from '@/lib/supabase'
+import { getConceptosDesayunos, PagoDesayuno, getOrdenPendiente, processOrderWithSaldo } from '@/lib/supabase'
 import jsPDF from 'jspdf'
 
 interface ConceptoDesayuno {
@@ -21,7 +21,7 @@ interface CartItem extends ConceptoDesayuno {
 }
 
 export default function ServiciosInternosPage() {
-  const { user } = useAuth()
+  const { user, isLoading: authLoading } = useAuth()
   const router = useRouter()
   const [searchTerm, setSearchTerm] = useState('')
   const [productos, setProductos] = useState<ConceptoDesayuno[]>([])
@@ -48,7 +48,6 @@ export default function ServiciosInternosPage() {
   const [showRestrictionModal, setShowRestrictionModal] = useState(false)
   const [restrictionMessage, setRestrictionMessage] = useState('')
   const [hasPendingOrder, setHasPendingOrder] = useState(false)
-  const [isCheckingPendingOrder, setIsCheckingPendingOrder] = useState(true)
   const [pendingOrderNumber, setPendingOrderNumber] = useState<string>('')
 
   // Helper: formatear fecha local YYYY-MM-DD sin offset de zona horaria
@@ -69,20 +68,25 @@ export default function ServiciosInternosPage() {
 
   useEffect(() => {
     loadProductos()
-    checkPendingOrders()
   }, [])
 
-  // Verificar órdenes pendientes cuando el usuario regrese a esta página
+  // Verificar orden pendiente cuando el alumno ya está en sesión
+  useEffect(() => {
+    if (authLoading || !user?.alumno_ref) return
+    checkPendingOrders()
+  }, [user?.alumno_ref, authLoading])
+
+  // Re-verificar al volver a la pestaña
   useEffect(() => {
     const handleFocus = () => {
-      if (user) {
+      if (user?.alumno_ref) {
         checkPendingOrders()
       }
     }
 
     window.addEventListener('focus', handleFocus)
     return () => window.removeEventListener('focus', handleFocus)
-  }, [user])
+  }, [user?.alumno_ref])
 
   useEffect(() => {
     // Filtrar productos basado en el término de búsqueda
@@ -100,28 +104,16 @@ export default function ServiciosInternosPage() {
   }, [searchTerm, productos])
 
   const checkPendingOrders = async () => {
-    if (!user) return
-    
+    if (!user?.alumno_ref) return
+
     try {
-      setIsCheckingPendingOrder(true)
-      const result = await getAllPagosVigentes(user.alumno_ref)
-      if (result.success && result.data) {
-        // Verificar si hay alguna orden pendiente (estatus 2)
-        const hasPending = result.data.some(item => item.pago_estatus === 2)
-        setHasPendingOrder(hasPending)
-        
-        // Si hay orden pendiente, obtener el número de orden del primer servicio pendiente
-        if (hasPending) {
-          const pendingService = result.data.find(item => item.pago_estatus === 2)
-          if (pendingService && pendingService.pago_orden) {
-            setPendingOrderNumber(pendingService.pago_orden)
-          }
-        }
+      const result = await getOrdenPendiente(user.alumno_ref)
+      if (result.success) {
+        setHasPendingOrder(result.hasPending)
+        setPendingOrderNumber(result.hasPending ? result.orderNumber ?? '' : '')
       }
     } catch (error) {
       console.error('Error verificando órdenes pendientes:', error)
-    } finally {
-      setIsCheckingPendingOrder(false)
     }
   }
 
@@ -534,16 +526,6 @@ export default function ServiciosInternosPage() {
                 <p className="mt-3 text-sm text-red-600">{productosError}</p>
               )}
             </div>
-
-            {/* Indicador de verificación de órdenes pendientes */}
-            {isCheckingPendingOrder && (
-              <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                <div className="flex items-center gap-3">
-                  <div className="w-5 h-5 border-2 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
-                  <span className="text-blue-700 text-sm">Verificando órdenes pendientes...</span>
-                </div>
-              </div>
-            )}
 
             {/* Grid de productos */}
             <div className="bg-white rounded-xl shadow-lg p-6">
