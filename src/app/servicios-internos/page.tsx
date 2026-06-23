@@ -28,6 +28,7 @@ export default function ServiciosInternosPage() {
   const [filteredProductos, setFilteredProductos] = useState<ConceptoDesayuno[]>([])
   const [cart, setCart] = useState<CartItem[]>([])
   const [isLoadingProductos, setIsLoadingProductos] = useState(true)
+  const [productosError, setProductosError] = useState<string | null>(null)
   const [showTicketModal, setShowTicketModal] = useState(false)
   const [orderData, setOrderData] = useState<{
     orderNumber: string
@@ -88,8 +89,11 @@ export default function ServiciosInternosPage() {
     if (searchTerm.trim() === '') {
       setFilteredProductos([])
     } else {
-      const filtered = productos.filter(producto =>
-        producto.desayuno_nombre.toLowerCase().includes(searchTerm.toLowerCase())
+      const q = searchTerm.toLowerCase().trim()
+      const filtered = productos.filter(
+        (producto) =>
+          producto.desayuno_nombre.toLowerCase().includes(q) ||
+          producto.desayuno_abreviatura?.toLowerCase().includes(q)
       )
       setFilteredProductos(filtered)
     }
@@ -124,12 +128,16 @@ export default function ServiciosInternosPage() {
   const loadProductos = async () => {
     try {
       setIsLoadingProductos(true)
+      setProductosError(null)
       const result = await getConceptosDesayunos()
       if (result.success && result.data) {
         setProductos(result.data)
+      } else {
+        setProductosError(result.error ?? 'No se pudieron cargar los productos')
       }
     } catch (error) {
       console.error('Error cargando productos:', error)
+      setProductosError('Error de conexión al cargar productos')
     } finally {
       setIsLoadingProductos(false)
     }
@@ -516,14 +524,15 @@ export default function ServiciosInternosPage() {
                 <FaSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
                 <input
                   type="text"
-                  placeholder="Buscar productos..."
+                  placeholder="Buscar: desayuno, comida, estancia, cc, dg..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  onFocus={() => setSearchTerm('')}
-                  onClick={() => setSearchTerm('')}
                   className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 placeholder-gray-500"
                 />
               </div>
+              {productosError && (
+                <p className="mt-3 text-sm text-red-600">{productosError}</p>
+              )}
             </div>
 
             {/* Indicador de verificación de órdenes pendientes */}

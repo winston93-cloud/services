@@ -18,7 +18,9 @@ const serviciosCfg = fs.existsSync(serviciosCfgPath)
 const anonKey = execSync('npx @insforge/cli secrets get ANON_KEY', {
   cwd: ROOT,
   encoding: 'utf8',
-}).trim()
+})
+  .trim()
+  .replace(/^ANON_KEY\s*=\s*/i, '')
 
 const lines = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8').split('\n') : []
 const map = new Map()
